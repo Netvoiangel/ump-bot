@@ -5,6 +5,10 @@ from config import (
     UMP_BASE_URL, UMP_TOKEN_FILE, PARKS_FILE, UMP_TZ_OFFSET, REQUEST_TIMEOUT,
     CACHE_DIR, CACHE_TTL_SEC, ANTI_FLAP_GRACE_M
 )
+try:
+    from login_token import login_and_save as _auto_login
+except Exception:
+    _auto_login = None
 
 # ---------- UMP auth/requests ----------
 _SESSION = None
@@ -51,8 +55,16 @@ def parse_wkt_point(s: str) -> Optional[Tuple[float,float]]:
 def get_vehicle_id_by_depot_number(depot_number: str) -> Optional[int]:
     url = f"{UMP_BASE_URL}/api/v1/map/vehicles"
     s = _get_session()
-    r = s.post(url, params={"number": str(depot_number)}, json={}, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
+    for attempt in range(2):
+        try:
+            r = s.post(url, params={"number": str(depot_number)}, json={}, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
+            r.raise_for_status()
+            break
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 401 and _auto_login and attempt == 0:
+                _auto_login()
+                continue
+            raise
     items = _as_list(r.json())
     for it in items:
         dep = it.get("depotNumber") or it.get("depot_number") or it.get("number")
@@ -77,6 +89,10 @@ def fetch_online_by_vehicle_id(vehicle_id: int) -> Dict:
             break
         except Exception as e:
             last_exc = e
+            # если 401 — один раз пробуем перелогиниться
+            if isinstance(e, requests.HTTPError) and e.response is not None and e.response.status_code == 401 and _auto_login and attempt < 2:
+                _auto_login()
+                continue
             if attempt < 2:
                 import time as _t
                 _t.sleep(0.3 * (2 ** attempt))

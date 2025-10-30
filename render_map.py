@@ -310,6 +310,7 @@ def _parse_args(argv: List[str]) -> Dict:
         "referer": "",
         "apikey": "",
         "tps": 5.0,
+        "debug": False,
     }
     i = 0
     buf: List[str] = []
@@ -360,6 +361,8 @@ def _parse_args(argv: List[str]) -> Dict:
             out["font"] = a.split("=", 1)[1]
         elif a == "--font" and i + 1 < len(argv):
             out["font"] = argv[i + 1]; i += 1
+        elif a == "--debug":
+            out["debug"] = True
         else:
             buf.append(a)
         i += 1
@@ -404,6 +407,7 @@ if __name__ == "__main__":
         tile_apikey=args["apikey"],
         tile_rate_tps=args["tps"],
         font_path=args["font"],
+        debug=args["debug"],
     )
     if not files:
         print("Нет ТС внутри парков — изображение не создано.")
