@@ -20,5 +20,11 @@ UMP_TZ_OFFSET       = os.getenv("UMP_TIMEZONE_OFFSET", "180")
 REQUEST_TIMEOUT     = float(os.getenv("REQUEST_TIMEOUT", "20"))
 LOG_LEVEL           = os.getenv("LOG_LEVEL", "INFO").upper()
 
+# --- Caching / Stability ---
+CACHE_DIR           = os.getenv("CACHE_DIR", ".secrets/cache")
+CACHE_TTL_SEC       = int(os.getenv("CACHE_TTL", "120"))
+ANTI_FLAP_GRACE_M   = float(os.getenv("ANTI_FLAP_GRACE_M", "3"))
+
 _ensure_parent_dir(UMP_TOKEN_FILE)
 _ensure_parent_dir(UMP_COOKIES_FILE)
+_ensure_parent_dir(CACHE_DIR)

@@ -2,13 +2,21 @@
 import os, json, re, math, requests
 from typing import Optional, List, Tuple, Dict
 from config import (
-    UMP_BASE_URL, UMP_TOKEN_FILE, PARKS_FILE, UMP_TZ_OFFSET, REQUEST_TIMEOUT
+    UMP_BASE_URL, UMP_TOKEN_FILE, PARKS_FILE, UMP_TZ_OFFSET, REQUEST_TIMEOUT,
+    CACHE_DIR, CACHE_TTL_SEC, ANTI_FLAP_GRACE_M
 )
 
 # ---------- UMP auth/requests ----------
+_SESSION = None
 def _load_token() -> str:
     with open(UMP_TOKEN_FILE, "r", encoding="utf-8") as f:
         return f.read().strip()
+
+def _get_session() -> requests.Session:
+    global _SESSION
+    if _SESSION is None:
+        _SESSION = requests.Session()
+    return _SESSION
 
 def _auth_headers() -> Dict[str, str]:
     t = _load_token()
@@ -42,7 +50,8 @@ def parse_wkt_point(s: str) -> Optional[Tuple[float,float]]:
 
 def get_vehicle_id_by_depot_number(depot_number: str) -> Optional[int]:
     url = f"{UMP_BASE_URL}/api/v1/map/vehicles"
-    r = requests.post(url, params={"number": str(depot_number)}, json={}, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
+    s = _get_session()
+    r = s.post(url, params={"number": str(depot_number)}, json={}, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     items = _as_list(r.json())
     for it in items:
@@ -58,9 +67,21 @@ def get_vehicle_id_by_depot_number(depot_number: str) -> Optional[int]:
 
 def fetch_online_by_vehicle_id(vehicle_id: int) -> Dict:
     url = f"{UMP_BASE_URL}/api/v1/map/online/{vehicle_id}"
-    r = requests.get(url, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
-    data = r.json() if "application/json" in r.headers.get("Content-Type","") else {}
+    s = _get_session()
+    last_exc = None
+    for attempt in range(3):
+        try:
+            r = s.get(url, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
+            r.raise_for_status()
+            data = r.json() if "application/json" in r.headers.get("Content-Type","") else {}
+            break
+        except Exception as e:
+            last_exc = e
+            if attempt < 2:
+                import time as _t
+                _t.sleep(0.3 * (2 ** attempt))
+                continue
+            raise
     center = data.get("center")
     lat = lon = None
     if isinstance(center, str):
@@ -75,6 +96,42 @@ def fetch_online_by_vehicle_id(vehicle_id: int) -> Dict:
         "time": tstamp,
         "raw": data
     }
+
+# ---------- File cache ----------
+def _cache_path_for(vehicle_id: int) -> str:
+    return os.path.join(CACHE_DIR, f"online_{vehicle_id}.json")
+
+def _load_cached_position(vehicle_id: int) -> Optional[Dict]:
+    try:
+        path = _cache_path_for(vehicle_id)
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        import time
+        if (time.time() - data.get("ts", 0)) > CACHE_TTL_SEC:
+            return None
+        return data
+    except Exception:
+        return None
+
+def _save_cached_position(vehicle_id: int, lat: float, lon: float, in_park: bool, park_name: Optional[str], raw_time) -> None:
+    try:
+        import time
+        path = _cache_path_for(vehicle_id)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({
+                "ts": time.time(),
+                "vehicle_id": vehicle_id,
+                "lat": lat,
+                "lon": lon,
+                "in_park": in_park,
+                "park_name": park_name,
+                "time": raw_time,
+            }, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 # ---------- Geometry / Geofencing ----------
 def load_parks(path=PARKS_FILE) -> List[Dict]:
@@ -137,6 +194,27 @@ def point_in_polygon_with_tolerance(lon: float, lat: float, polygon: List[Tuple[
             return True
     return False
 
+def distance_to_polygon_m(lon: float, lat: float, polygon: List[Tuple[float,float]]) -> float:
+    lons = [p[0] for p in polygon]; lats = [p[1] for p in polygon]
+    lat_m, lon_m = meters_per_degree(lat)
+    best = float("inf")
+    for i in range(len(polygon)):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i+1) % len(polygon)]
+        dx = x2 - x1; dy = y2 - y1
+        if dx == dy == 0:
+            continue
+        t = max(0.0, min(1.0, ((lon - x1)*dx + (lat - y1)*dy) / (dx*dx + dy*dy)))
+        proj_x = x1 + t*dx; proj_y = y1 + t*dy
+        d_lon = (lon - proj_x) * lon_m
+        d_lat = (lat - proj_y) * lat_m
+        dist_m = (d_lon*d_lon + d_lat*d_lat)**0.5
+        if dist_m < best:
+            best = dist_m
+    if point_in_polygon(lon, lat, polygon):
+        return 0.0
+    return best
+
 def locate_park(lon: float, lat: float, parks: List[Dict]) -> Optional[str]:
     for p in parks:
         if point_in_polygon_with_tolerance(lon, lat, p["polygon"], p["tolerance_m"]):
@@ -148,12 +226,50 @@ def get_position_and_check(depot_number: str) -> Dict:
     vid = get_vehicle_id_by_depot_number(depot_number)
     if vid is None:
         return {"ok": False, "depot_number": depot_number, "error": "vehicle_id_not_found"}
-    pos = fetch_online_by_vehicle_id(vid)
+    try:
+        pos = fetch_online_by_vehicle_id(vid)
+    except Exception as e:
+        cached = _load_cached_position(vid)
+        if cached:
+            return {
+                "ok": True,
+                "depot_number": str(depot_number),
+                "vehicle_id": vid,
+                "lat": cached.get("lat"), "lon": cached.get("lon"),
+                "time": cached.get("time"),
+                "in_park": bool(cached.get("in_park")),
+                "park_name": cached.get("park_name")
+            }
+        raise
     lat, lon = pos["lat"], pos["lon"]
     if lat is None or lon is None:
+        cached = _load_cached_position(vid)
+        if cached:
+            return {
+                "ok": True,
+                "depot_number": str(depot_number),
+                "vehicle_id": vid,
+                "lat": cached.get("lat"), "lon": cached.get("lon"),
+                "time": cached.get("time"),
+                "in_park": bool(cached.get("in_park")),
+                "park_name": cached.get("park_name")
+            }
         return {"ok": False, "depot_number": depot_number, "vehicle_id": vid, "error": "no_coords", "raw": pos["raw"]}
     parks = load_parks(PARKS_FILE)
     park_name = locate_park(lon, lat, parks) if parks else None
+
+    # анти-флап возле границы
+    if not park_name and parks and ANTI_FLAP_GRACE_M > 0:
+        try:
+            for p in parks:
+                d = distance_to_polygon_m(lon, lat, p["polygon"])
+                if d <= ANTI_FLAP_GRACE_M:
+                    park_name = p["name"]
+                    break
+        except Exception:
+            pass
+
+    _save_cached_position(vid, lat, lon, park_name is not None, park_name, pos.get("time"))
     return {
         "ok": True,
         "depot_number": str(depot_number),
