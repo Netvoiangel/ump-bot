@@ -153,7 +153,7 @@ def get_position_and_check(depot_number: str) -> Dict:
     if lat is None or lon is None:
         return {"ok": False, "depot_number": depot_number, "vehicle_id": vid, "error": "no_coords", "raw": pos["raw"]}
     parks = load_parks(PARKS_FILE)
-    park_name = locate_ark = locate_park(lon, lat, parks) if parks else None
+    park_name = locate_park(lon, lat, parks) if parks else None
     return {
         "ok": True,
         "depot_number": str(depot_number),
@@ -164,13 +164,114 @@ def get_position_and_check(depot_number: str) -> Dict:
         "park_name": park_name
     }
 
+def _normalize_token(tok: str) -> str:
+    return tok.strip()
+
+def is_valid_depot_number(s: str) -> bool:
+    s = _normalize_token(s)
+    if not s.isdigit():
+        return False
+    # допускаем 3-6 цифр: 656, 6563, 10268, 15153 и т.п.
+    return 3 <= len(s) <= 6
+
+def parse_depots_from_args(args: List[str]) -> Tuple[List[str], List[Dict]]:
+    """
+    Возвращает (валидные_депо, список_ошибок_invalid).
+    Поддерживает перечисление через пробелы/запятые/новые строки и --file path.
+    Дубликаты удаляются, порядок первого появления сохраняется.
+    """
+    valid: List[str] = []
+    invalid: List[Dict] = []
+    seen = set()
+
+    # поддержка флага --file <path>
+    file_path = None
+    i = 0
+    while i < len(args):
+        if args[i] == "--file" and i + 1 < len(args):
+            file_path = args[i+1]
+            i += 2
+        else:
+            i += 1
+
+    tokens: List[str] = []
+    # собрать токены из args без --file секции
+    i = 0
+    while i < len(args):
+        if args[i] == "--file":
+            i += 2
+            continue
+        tokens.append(args[i])
+        i += 1
+
+    # если указан файл — добавить его строки
+    if file_path:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                file_content = f.read()
+            tokens.append(file_content)
+        except Exception as e:
+            invalid.append({"ok": False, "error": "file_read_error", "detail": str(e)})
+
+    # распарсить все токены: разделители — пробел/запятая/перевод строки/точка с запятой
+    raw = "\n".join(tokens)
+    for part in re.split(r"[\s,;]+", raw):
+        t = _normalize_token(part)
+        if not t:
+            continue
+        if t in seen:
+            continue
+        if is_valid_depot_number(t):
+            valid.append(t)
+            seen.add(t)
+        else:
+            invalid.append({"ok": False, "depot_number": t, "error": "invalid_depot_number"})
+
+    return valid, invalid
+
+def batch_get_positions(depot_numbers: List[str]) -> List[Dict]:
+    results: List[Dict] = []
+    for dep in depot_numbers:
+        try:
+            results.append(get_position_and_check(dep))
+        except requests.HTTPError as e:
+            results.append({
+                "ok": False,
+                "depot_number": str(dep),
+                "error": "http_error",
+                "status": getattr(e.response, "status_code", None),
+                "detail": (getattr(e.response, "text", "") or "")[:400],
+            })
+        except Exception as e:
+            results.append({
+                "ok": False,
+                "depot_number": str(dep),
+                "error": "exception",
+                "detail": str(e),
+            })
+    return results
+
 if __name__ == "__main__":
     import sys
-    depot = sys.argv[1] if len(sys.argv) > 1 else "6268"
-    try:
-        out = get_position_and_check(depot)
-        print(json.dumps(out, ensure_ascii=False, indent=2))
-    except requests.HTTPError as e:
-        print("HTTP error:", e.response.status_code, e.response.text[:400])
-    except Exception as e:
-        print("Error:", e)
+    args = sys.argv[1:]
+    # обратная совместимость: один аргумент — как раньше
+    if len(args) == 1 and args[0] and args[0] != "--file":
+        depot = args[0]
+        try:
+            out = get_position_and_check(depot)
+            print(json.dumps(out, ensure_ascii=False, indent=2))
+        except requests.HTTPError as e:
+            print("HTTP error:", e.response.status_code, e.response.text[:400])
+        except Exception as e:
+            print("Error:", e)
+        raise SystemExit(0)
+
+    # пакетный режим
+    valids, invalids = parse_depots_from_args(args)
+    batch = batch_get_positions(valids) if valids else []
+    out = []
+    if invalids:
+        out.extend(invalids)
+    if batch:
+        out.extend(batch)
+    print(json.dumps(out, ensure_ascii=False, indent=2))
