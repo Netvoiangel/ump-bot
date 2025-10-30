@@ -306,7 +306,7 @@ def _parse_args(argv: List[str]) -> Dict:
         "zoom": 17,
         "provider": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
         "cache": ".tile_cache",
-        "ua": "UMPBot/1.0 (+contact: you@example.com)",
+        "ua": "",
         "referer": "",
         "apikey": "",
         "tps": 5.0,
@@ -366,6 +366,51 @@ def _parse_args(argv: List[str]) -> Dict:
         else:
             buf.append(a)
         i += 1
+
+    # загрузим .env и подставим значения окружения как дефолты
+    try:
+        load_dotenv()
+    except Exception:
+        pass
+
+    # Только если пользователь не указал явный провайдер — используем из окружения/по умолчанию
+    env_provider = os.getenv("MAP_PROVIDER") or os.getenv("MAP_PROVIDER_URL")
+    env_zoom = os.getenv("MAP_ZOOM")
+    env_tps = os.getenv("MAP_TPS")
+    env_cache = os.getenv("MAP_CACHE_DIR")
+    env_out = os.getenv("MAP_OUT_DIR")
+    env_size = os.getenv("MAP_SIZE")
+    env_font = os.getenv("MAP_FONT")
+    env_ua = os.getenv("MAP_USER_AGENT")
+    env_ref = os.getenv("MAP_REFERER")
+    env_key = os.getenv("MAPTILER_API_KEY")
+
+    # приоритет: CLI > .env > дефолт
+    if out["provider"] == "https://tile.openstreetmap.org/{z}/{x}/{y}.png":
+        if env_provider:
+            out["provider"] = env_provider
+        elif env_key:
+            out["provider"] = "https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key={apikey}"
+    if out["zoom"] == 17 and env_zoom:
+        try: out["zoom"] = int(env_zoom)
+        except Exception: pass
+    if out["tps"] == 5.0 and env_tps:
+        try: out["tps"] = float(env_tps)
+        except Exception: pass
+    if out["cache"] == ".tile_cache" and env_cache:
+        out["cache"] = env_cache
+    if out["out_dir"] == "out" and env_out:
+        out["out_dir"] = env_out
+    if out["size"] == "1200x800" and env_size:
+        out["size"] = env_size
+    if out["font"] == "" and env_font:
+        out["font"] = env_font
+    if out["ua"] == "" and env_ua:
+        out["ua"] = env_ua
+    if out["referer"] == "" and env_ref:
+        out["referer"] = env_ref
+    if out["apikey"] == "" and env_key:
+        out["apikey"] = env_key
 
     if file_path:
         try:
