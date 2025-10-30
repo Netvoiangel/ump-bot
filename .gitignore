@@ -1,0 +1,12 @@
+# env + секреты
+.env
+.secrets/
+ump_token.txt
+ump_cookies.txt
+
+# Python мусор
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
