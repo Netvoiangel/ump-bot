@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 
 from otbivka import load_parks, batch_get_positions, get_position_and_check
 from render_map import render_parks_with_vehicles, parse_vehicles_file_with_sections
+from login_token import login_and_save
+from config import UMP_TOKEN_FILE, UMP_USER, UMP_PASS
 
 load_dotenv()
 
@@ -39,6 +41,45 @@ MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE_MB", "10")) * 1024 * 1024  # 10MB
 
 # Кэш выбранных парков для пользователей
 user_park_cache: Dict[int, str] = {}
+
+
+def ensure_token_exists() -> bool:
+    """Проверяет наличие токена и создает его при необходимости"""
+    token_path = Path(UMP_TOKEN_FILE)
+    
+    # Если токен существует, проверяем что он не пустой
+    if token_path.exists():
+        try:
+            with open(token_path, "r", encoding="utf-8") as f:
+                token = f.read().strip()
+                if token:
+                    return True
+        except Exception:
+            pass
+    
+    # Токена нет или он пустой - пытаемся создать
+    if not UMP_USER or not UMP_PASS:
+        logger.warning("UMP_USER или UMP_PASS не установлены в .env. Автологин невозможен.")
+        return False
+    
+    try:
+        logger.info("Токен не найден, выполняю авторизацию...")
+        login_and_save()
+        logger.info("Авторизация успешна")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка авторизации: {e}", exc_info=True)
+        return False
+
+
+def ensure_token_with_retry() -> bool:
+    """Проверяет токен и пытается обновить при необходимости"""
+    if ensure_token_exists():
+        return True
+    
+    # Если не удалось - пробуем еще раз
+    logger.warning("Повторная попытка авторизации...")
+    return ensure_token_exists()
 
 
 def check_access(user_id: int) -> bool:
@@ -153,8 +194,26 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     depot_number = context.args[0]
     
+    # Проверяем токен перед выполнением
+    if not ensure_token_with_retry():
+        await update.message.reply_text(
+            "❌ Ошибка авторизации в UMP. Проверьте UMP_USER и UMP_PASS в .env"
+        )
+        return
+    
     try:
         result = get_position_and_check(depot_number)
+        
+        # Если получили 401 - пробуем перелогиниться и повторить
+        if not result.get("ok") and result.get("error") == "http_error":
+            status = result.get("status")
+            if status == 401:
+                logger.warning("Получен 401, пытаюсь перелогиниться...")
+                if ensure_token_with_retry():
+                    result = get_position_and_check(depot_number)
+                else:
+                    await update.message.reply_text("❌ Ошибка авторизации. Попробуйте позже.")
+                    return
         
         if not result.get("ok"):
             error = result.get("error", "unknown")
@@ -176,6 +235,32 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         
         await update.message.reply_text(text)
+    except FileNotFoundError as e:
+        logger.error(f"Token file not found: {e}", exc_info=True)
+        if ensure_token_with_retry():
+            # Повторяем запрос после создания токена
+            try:
+                result = get_position_and_check(depot_number)
+                if result.get("ok"):
+                    in_park = "✅ В парке" if result.get("in_park") else "❌ Вне парка"
+                    park_name = result.get("park_name", "—")
+                    text = (
+                        f"🚌 ТС {result.get('depot_number')}\n\n"
+                        f"📍 Статус: {in_park}\n"
+                        f"🏢 Парк: {park_name}\n"
+                        f"🆔 ID: {result.get('vehicle_id')}\n"
+                        f"⏰ Время: {result.get('time', '—')}\n"
+                        f"🌐 Координаты:\n"
+                        f"   Lat: {result.get('lat', 0):.6f}\n"
+                        f"   Lon: {result.get('lon', 0):.6f}"
+                    )
+                    await update.message.reply_text(text)
+                else:
+                    await update.message.reply_text(f"❌ Ошибка: {result.get('error', 'unknown')}")
+            except Exception as e2:
+                await update.message.reply_text(f"❌ Ошибка: {str(e2)}")
+        else:
+            await update.message.reply_text("❌ Ошибка авторизации. Проверьте настройки.")
     except Exception as e:
         logger.error(f"Error in status_command: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
@@ -184,6 +269,13 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /map - рендер карты"""
     if not check_access(update.effective_user.id):
+        return
+    
+    # Проверяем токен перед выполнением
+    if not ensure_token_with_retry():
+        await update.message.reply_text(
+            "❌ Ошибка авторизации в UMP. Проверьте UMP_USER и UMP_PASS в .env"
+        )
         return
     
     user_id = update.effective_user.id
@@ -285,6 +377,17 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 logger.error(f"Error sending image {file_path}: {e}", exc_info=True)
                 await update.message.reply_text(f"❌ Ошибка отправки изображения: {str(e)}")
         
+    except FileNotFoundError as e:
+        if "ump_token" in str(e) or "token" in str(e).lower():
+            logger.error(f"Token file not found: {e}", exc_info=True)
+            await update.message.reply_text("🔄 Токен не найден, пытаюсь авторизоваться...")
+            if ensure_token_with_retry():
+                await update.message.reply_text("✅ Авторизация успешна. Попробуйте команду снова.")
+            else:
+                await update.message.reply_text("❌ Ошибка авторизации. Проверьте настройки.")
+        else:
+            logger.error(f"File not found: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Файл не найден: {str(e)}")
     except Exception as e:
         logger.error(f"Error in map_command: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Ошибка генерации карты: {str(e)}")
@@ -295,6 +398,13 @@ def main() -> None:
     if not BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN не установлен в .env")
         return
+    
+    # Проверяем и создаем токен UMP при старте
+    logger.info("Проверяю токен UMP...")
+    if not ensure_token_exists():
+        logger.warning("Токен UMP не создан. Бот будет пытаться создать его при первом запросе.")
+    else:
+        logger.info("Токен UMP готов")
     
     # Создаем Application
     application = Application.builder().token(BOT_TOKEN).build()
