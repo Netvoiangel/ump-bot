@@ -280,18 +280,22 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     
     user_id = update.effective_user.id
     selected_park = user_park_cache.get(user_id)
+    logger.info(f"map_command: user={user_id}, park={selected_park}, args={context.args}")
     
     # Парсим номера ТС из аргументов или используем файл
     depot_numbers = []
     if context.args:
         depot_numbers = [d for d in context.args if d.isdigit()]
+        logger.info(f"Номера из аргументов: {depot_numbers}")
     
     # Если номеров нет, используем файл
     if not depot_numbers and os.path.exists(VEHICLES_FILE):
+        logger.info(f"Читаю файл {VEHICLES_FILE}")
         sections = parse_vehicles_file_with_sections(VEHICLES_FILE)
         for category, numbers in sections.items():
             depot_numbers.extend(numbers)
         depot_numbers = list(set(depot_numbers))  # убираем дубликаты
+        logger.info(f"Номера из файла: {len(depot_numbers)} ТС")
     
     if not depot_numbers:
         await update.message.reply_text(
@@ -335,6 +339,7 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         color_map[num] = (fill, outline)
         
         # Рендерим карту
+        logger.info(f"Рендеринг карты: {len(depot_numbers)} ТС, парк={selected_park}")
         files = render_parks_with_vehicles(
             depot_numbers=depot_numbers,
             out_dir=OUT_DIR,
@@ -349,12 +354,17 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             tile_rate_tps=3.0,  # Снижено для слабого сервера
             park_filter=selected_park,
             color_map=color_map,
+            debug=True,  # Включаем отладку
         )
+        logger.info(f"Сгенерировано файлов: {len(files) if files else 0}")
         
         if not files:
+            logger.warning(f"Нет файлов для отправки. ТС: {len(depot_numbers)}, Парк: {selected_park}")
             await update.message.reply_text(
-                "❌ Нет ТС внутри парков для отображения.\n"
-                "Проверьте номера ТС или выберите другой парк: /parks"
+                f"❌ Нет ТС внутри парков для отображения.\n"
+                f"Обработано ТС: {len(depot_numbers)}\n"
+                f"Парк: {selected_park or 'все'}\n"
+                f"Попробуйте: /parks для выбора парка"
             )
             return
         
@@ -390,7 +400,59 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text(f"❌ Файл не найден: {str(e)}")
     except Exception as e:
         logger.error(f"Error in map_command: {e}", exc_info=True)
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"Full traceback: {error_details}")
         await update.message.reply_text(f"❌ Ошибка генерации карты: {str(e)}")
+
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик текстовых сообщений в формате vehicles.txt"""
+    if not check_access(update.effective_user.id):
+        return
+    
+    text = update.message.text.strip()
+    
+    # Пропускаем команды
+    if text.startswith("/"):
+        return
+    
+    # Парсим текст как vehicles.txt
+    try:
+        # Создаем временный файл
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            f.write(text)
+            temp_file = f.name
+        
+        # Парсим секции
+        sections = parse_vehicles_file_with_sections(temp_file)
+        depot_numbers = []
+        for category, numbers in sections.items():
+            depot_numbers.extend(numbers)
+        depot_numbers = list(set(depot_numbers))
+        
+        # Удаляем временный файл
+        os.unlink(temp_file)
+        
+        if not depot_numbers:
+            await update.message.reply_text("❌ Не найдено номеров ТС в сообщении.")
+            return
+        
+        logger.info(f"Парсинг текста: найдено {len(depot_numbers)} ТС")
+        
+        # Вызываем map_command с этими номерами
+        # Создаем фейковый context с аргументами
+        class FakeContext:
+            def __init__(self, args):
+                self.args = args
+        
+        fake_context = FakeContext(depot_numbers)
+        await map_command(update, fake_context)
+        
+    except Exception as e:
+        logger.error(f"Error parsing text: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Ошибка парсинга текста: {str(e)}")
 
 
 def main() -> None:
@@ -416,6 +478,8 @@ def main() -> None:
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("map", map_command))
     application.add_handler(CallbackQueryHandler(park_callback, pattern="^park_"))
+    # Обработчик текстовых сообщений (для формата vehicles.txt) - должен быть последним
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     
     # Запускаем бота
     logger.info("Бот запущен...")
