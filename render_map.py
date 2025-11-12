@@ -1,6 +1,6 @@
 # render_map.py
 import os, re, json, math, io, time
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import requests
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
@@ -9,6 +9,42 @@ from otbivka import load_parks, batch_get_positions
 
 def _normalize_token(tok: str) -> str:
     return tok.strip()
+
+
+def parse_vehicles_file_with_sections(file_path: str) -> Dict[str, List[str]]:
+    """
+    Парсит vehicles.txt с секциями (заголовки) и возвращает словарь:
+    { "category_name": [depot_numbers...], ... }
+    """
+    result: Dict[str, List[str]] = {}
+    current_category = "default"
+    
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                # Проверяем, является ли строка заголовком
+                # Заголовок: не состоит только из цифр, и (содержит двоеточие ИЛИ не содержит цифр вообще)
+                is_header = (not line.isdigit()) and (":" in line or not any(c.isdigit() for c in line))
+                if is_header:
+                    # Это заголовок секции
+                    current_category = line.rstrip(":").strip()
+                    if current_category not in result:
+                        result[current_category] = []
+                else:
+                    # Это номер ТС (только цифры)
+                    if line.isdigit():
+                        if current_category not in result:
+                            result[current_category] = []
+                        if line not in result[current_category]:
+                            result[current_category].append(line)
+    except Exception as e:
+        # Если ошибка — возвращаем пустой словарь
+        pass
+    
+    return result
 
 
 def _parse_size(s: str) -> Tuple[int, int]:
@@ -149,6 +185,8 @@ def render_parks_with_vehicles(
     point_radius: int = 6,
     font_path: str = "",
     debug: bool = False,
+    park_filter: Optional[str] = None,
+    color_map: Optional[Dict[str, Tuple[str, str]]] = None,
 ) -> List[str]:
     # загрузим .env для поддержки MAPTILER_API_KEY, MAP_USER_AGENT, MAP_REFERER
     try:
@@ -194,6 +232,11 @@ def render_parks_with_vehicles(
         print("parks_found:", list(in_park_by_name.keys()))
 
     for park_name, vehicles in in_park_by_name.items():
+        # фильтр по имени парка, если указан
+        if park_filter and park_name != park_filter:
+            if debug:
+                print(f"skipping_park (filter={park_filter}):", park_name)
+            continue
         park = park_by_name.get(park_name)
         if not park:
             if debug:
@@ -264,7 +307,12 @@ def render_parks_with_vehicles(
             else:
                 cx, cy = _project(lon, lat, bbox, (width, height), pad)
             r = point_radius
-            draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=vehicle_fill, outline=vehicle_outline)
+            # Определяем цвет точки на основе color_map
+            fill_col = vehicle_fill
+            outline_col = vehicle_outline
+            if color_map and dep in color_map:
+                fill_col, outline_col = color_map[dep]
+            draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill_col, outline=outline_col)
             # подпись с фоновой коробкой
             tx, ty = cx + r + 6, cy - r - 14
             _draw_label_box(draw, (tx, ty), dep, text_color, font)
@@ -311,6 +359,7 @@ def _parse_args(argv: List[str]) -> Dict:
         "apikey": "",
         "tps": 5.0,
         "debug": False,
+        "park": "",
     }
     i = 0
     buf: List[str] = []
@@ -363,6 +412,10 @@ def _parse_args(argv: List[str]) -> Dict:
             out["font"] = argv[i + 1]; i += 1
         elif a == "--debug":
             out["debug"] = True
+        elif a.startswith("--park="):
+            out["park"] = a.split("=", 1)[1]
+        elif a == "--park" and i + 1 < len(argv):
+            out["park"] = argv[i + 1]; i += 1
         else:
             buf.append(a)
         i += 1
@@ -384,6 +437,7 @@ def _parse_args(argv: List[str]) -> Dict:
     env_ua = os.getenv("MAP_USER_AGENT")
     env_ref = os.getenv("MAP_REFERER")
     env_key = os.getenv("MAPTILER_API_KEY")
+    env_park = os.getenv("MAP_PARK")
 
     # приоритет: CLI > .env > дефолт
     if out["provider"] == "https://tile.openstreetmap.org/{z}/{x}/{y}.png":
@@ -411,11 +465,38 @@ def _parse_args(argv: List[str]) -> Dict:
         out["referer"] = env_ref
     if out["apikey"] == "" and env_key:
         out["apikey"] = env_key
+    if out["park"] == "" and env_park:
+        out["park"] = env_park
 
+    color_map: Optional[Dict[str, Tuple[str, str]]] = None
+    
     if file_path:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                buf.append(f.read())
+            # Парсим файл с секциями для создания color_map
+            sections = parse_vehicles_file_with_sections(file_path)
+            if sections:
+                color_map = {}
+                # Определяем цвета по категориям
+                for category, depot_list in sections.items():
+                    # ТС из секции "Проверка ГК..." - зеленый/желтый
+                    if "Проверка ГК" in category or category.startswith("Проверка ГК"):
+                        fill_color_special = "#ffd43b"  # желтый
+                        outline_color_special = "#fab005"  # темно-желтый
+                    else:
+                        # Все остальные - красный (дефолт)
+                        fill_color_special = "#fa5252"  # красный
+                        outline_color_special = "#c92a2a"  # темно-красный
+                    
+                    for depot_num in depot_list:
+                        color_map[depot_num] = (fill_color_special, outline_color_special)
+                
+                # Собираем все номера ТС из всех секций
+                with open(file_path, "r", encoding="utf-8") as f:
+                    buf.append(f.read())
+            else:
+                # Если не удалось распарсить секции, читаем как обычно
+                with open(file_path, "r", encoding="utf-8") as f:
+                    buf.append(f.read())
         except Exception as e:
             print("Не удалось прочитать файл:", e)
 
@@ -433,6 +514,7 @@ def _parse_args(argv: List[str]) -> Dict:
         depots.append(t); seen.add(t)
 
     out["depots"] = depots
+    out["color_map"] = color_map
     return out
 
 
@@ -453,6 +535,8 @@ if __name__ == "__main__":
         tile_rate_tps=args["tps"],
         font_path=args["font"],
         debug=args["debug"],
+        park_filter=args["park"] if args["park"] else None,
+        color_map=args.get("color_map"),
     )
     if not files:
         print("Нет ТС внутри парков — изображение не создано.")
