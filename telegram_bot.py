@@ -24,16 +24,30 @@ from config import UMP_TOKEN_FILE, UMP_USER, UMP_PASS
 
 load_dotenv()
 
-# Настройка логирования
+# Настройка логирования - принудительно в stdout/stderr
+import sys
 logging.basicConfig(
     format='%(asctime)s - [%(levelname)s] %(name)s: %(message)s',
     level=logging.INFO,
     handlers=[
-        logging.StreamHandler(),  # Вывод в консоль
-    ]
+        logging.StreamHandler(sys.stdout),  # Принудительно stdout
+        logging.StreamHandler(sys.stderr),  # И stderr для надежности
+    ],
+    force=True  # Перезаписываем существующую конфигурацию
 )
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Дополнительно - print для критичных моментов (гарантированно видно)
+def log_print(msg: str, level: str = "INFO"):
+    """Дублирует логи в print для гарантированной видимости"""
+    print(f"[{level}] {msg}", file=sys.stderr, flush=True)
+    if level == "ERROR":
+        logger.error(msg)
+    elif level == "WARNING":
+        logger.warning(msg)
+    else:
+        logger.info(msg)
 
 # Конфигурация
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -49,7 +63,7 @@ user_park_cache: Dict[int, str] = {}
 
 def ensure_token_exists() -> bool:
     """Проверяет наличие токена и создает его при необходимости"""
-    logger.info(f"ensure_token_exists: проверяю {UMP_TOKEN_FILE}")
+    log_print(f"ensure_token_exists: проверяю {UMP_TOKEN_FILE}")
     token_path = Path(UMP_TOKEN_FILE)
     
     # Если токен существует, проверяем что он не пустой
@@ -58,28 +72,30 @@ def ensure_token_exists() -> bool:
             with open(token_path, "r", encoding="utf-8") as f:
                 token = f.read().strip()
                 if token:
-                    logger.info(f"Токен найден, длина: {len(token)}")
+                    log_print(f"Токен найден, длина: {len(token)}")
                     return True
                 else:
-                    logger.warning("Токен пустой")
+                    log_print("Токен пустой", "WARNING")
         except Exception as e:
-            logger.error(f"Ошибка чтения токена: {e}")
+            log_print(f"Ошибка чтения токена: {e}", "ERROR")
             pass
     else:
-        logger.warning(f"Файл токена не существует: {UMP_TOKEN_FILE}")
+        log_print(f"Файл токена не существует: {UMP_TOKEN_FILE}", "WARNING")
     
     # Токена нет или он пустой - пытаемся создать
     if not UMP_USER or not UMP_PASS:
-        logger.error("UMP_USER или UMP_PASS не установлены в .env. Автологин невозможен.")
+        log_print("UMP_USER или UMP_PASS не установлены в .env. Автологин невозможен.", "ERROR")
         return False
     
     try:
-        logger.info("Токен не найден, выполняю авторизацию...")
+        log_print("Токен не найден, выполняю авторизацию...")
         login_and_save()
-        logger.info("Авторизация успешна")
+        log_print("Авторизация успешна")
         return True
     except Exception as e:
-        logger.error(f"Ошибка авторизации: {e}", exc_info=True)
+        log_print(f"Ошибка авторизации: {e}", "ERROR")
+        import traceback
+        log_print(traceback.format_exc(), "ERROR")
         return False
 
 
@@ -279,41 +295,41 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /map - рендер карты"""
-    logger.info("=" * 50)
-    logger.info("map_command вызван")
+    log_print("=" * 50)
+    log_print("map_command вызван")
     
     if not check_access(update.effective_user.id):
-        logger.warning(f"Доступ запрещен для user={update.effective_user.id}")
+        log_print(f"Доступ запрещен для user={update.effective_user.id}", "WARNING")
         return
     
     # Проверяем токен перед выполнением
-    logger.info("Проверяю токен UMP...")
+    log_print("Проверяю токен UMP...")
     if not ensure_token_with_retry():
-        logger.error("Ошибка авторизации в UMP")
+        log_print("Ошибка авторизации в UMP", "ERROR")
         await update.message.reply_text(
             "❌ Ошибка авторизации в UMP. Проверьте UMP_USER и UMP_PASS в .env"
         )
         return
-    logger.info("Токен UMP готов")
+    log_print("Токен UMP готов")
     
     user_id = update.effective_user.id
     selected_park = user_park_cache.get(user_id)
-    logger.info(f"map_command: user={user_id}, park={selected_park}, args={context.args}")
+    log_print(f"map_command: user={user_id}, park={selected_park}, args={context.args}")
     
     # Парсим номера ТС из аргументов или используем файл
     depot_numbers = []
     if context.args:
         depot_numbers = [d for d in context.args if d.isdigit()]
-        logger.info(f"Номера из аргументов: {depot_numbers}")
+        log_print(f"Номера из аргументов: {depot_numbers}")
     
     # Если номеров нет, используем файл
     if not depot_numbers and os.path.exists(VEHICLES_FILE):
-        logger.info(f"Читаю файл {VEHICLES_FILE}")
+        log_print(f"Читаю файл {VEHICLES_FILE}")
         sections = parse_vehicles_file_with_sections(VEHICLES_FILE)
         for category, numbers in sections.items():
             depot_numbers.extend(numbers)
         depot_numbers = list(set(depot_numbers))  # убираем дубликаты
-        logger.info(f"Номера из файла: {len(depot_numbers)} ТС")
+        log_print(f"Номера из файла: {len(depot_numbers)} ТС")
     
     if not depot_numbers:
         await update.message.reply_text(
@@ -357,18 +373,18 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                         color_map[num] = (fill, outline)
         
         # Сначала проверяем статус ТС для отладки
-        logger.info(f"Проверяю статус {len(depot_numbers)} ТС...")
+        log_print(f"Проверяю статус {len(depot_numbers)} ТС...")
         sample_results = []
         for i, dep_num in enumerate(depot_numbers[:5]):  # Проверяем первые 5 для отладки
             try:
                 result = get_position_and_check(dep_num)
                 sample_results.append(result)
-                logger.info(f"ТС {dep_num}: ok={result.get('ok')}, in_park={result.get('in_park')}, park={result.get('park_name')}")
+                log_print(f"ТС {dep_num}: ok={result.get('ok')}, in_park={result.get('in_park')}, park={result.get('park_name')}")
             except Exception as e:
-                logger.error(f"Ошибка проверки ТС {dep_num}: {e}")
+                log_print(f"Ошибка проверки ТС {dep_num}: {e}", "ERROR")
         
         # Рендерим карту
-        logger.info(f"Рендеринг карты: {len(depot_numbers)} ТС, парк={selected_park}")
+        log_print(f"Рендеринг карты: {len(depot_numbers)} ТС, парк={selected_park}")
         files = render_parks_with_vehicles(
             depot_numbers=depot_numbers,
             out_dir=OUT_DIR,
@@ -385,7 +401,7 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             color_map=color_map,
             debug=True,  # Включаем отладку
         )
-        logger.info(f"Сгенерировано файлов: {len(files) if files else 0}")
+        log_print(f"Сгенерировано файлов: {len(files) if files else 0}")
         
         if not files:
             # Подробная информация для отладки
@@ -457,22 +473,22 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик текстовых сообщений в формате vehicles.txt"""
-    logger.info(f"text_handler вызван: user={update.effective_user.id}")
+    log_print(f"text_handler вызван: user={update.effective_user.id}")
     
     if not check_access(update.effective_user.id):
-        logger.warning(f"Доступ запрещен для user={update.effective_user.id}")
+        log_print(f"Доступ запрещен для user={update.effective_user.id}", "WARNING")
         return
     
     if not update.message or not update.message.text:
-        logger.warning("Нет текста в сообщении")
+        log_print("Нет текста в сообщении", "WARNING")
         return
     
     text = update.message.text.strip()
-    logger.info(f"Получен текст ({len(text)} символов): {text[:100]}...")
+    log_print(f"Получен текст ({len(text)} символов): {text[:100]}...")
     
     # Пропускаем команды
     if text.startswith("/"):
-        logger.debug("Пропущена команда")
+        log_print("Пропущена команда")
         return
     
     # Парсим текст как vehicles.txt
@@ -494,10 +510,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         os.unlink(temp_file)
         
         if not depot_numbers:
+            log_print("Не найдено номеров ТС в сообщении", "WARNING")
             await update.message.reply_text("❌ Не найдено номеров ТС в сообщении.")
             return
         
-        logger.info(f"Парсинг текста: найдено {len(depot_numbers)} ТС")
+        log_print(f"Парсинг текста: найдено {len(depot_numbers)} ТС")
         
         # Вызываем map_command с этими номерами
         # Создаем фейковый context с аргументами
@@ -509,52 +526,135 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await map_command(update, fake_context)
         
     except Exception as e:
-        logger.error(f"Error parsing text: {e}", exc_info=True)
+        log_print(f"Error parsing text: {e}", "ERROR")
+        import traceback
+        log_print(traceback.format_exc(), "ERROR")
         await update.message.reply_text(f"❌ Ошибка парсинга текста: {str(e)}")
+
+
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /test - диагностика"""
+    if not check_access(update.effective_user.id):
+        return
+    
+    log_print("=== TEST COMMAND ВЫЗВАН ===")
+    
+    info_lines = []
+    info_lines.append("🔍 ДИАГНОСТИКА БОТА\n")
+    
+    # Проверка конфигурации
+    info_lines.append(f"✅ BOT_TOKEN: {'установлен' if BOT_TOKEN else 'НЕ УСТАНОВЛЕН'}")
+    info_lines.append(f"📁 VEHICLES_FILE: {VEHICLES_FILE} ({'существует' if os.path.exists(VEHICLES_FILE) else 'НЕ СУЩЕСТВУЕТ'})")
+    info_lines.append(f"📁 OUT_DIR: {OUT_DIR} ({'существует' if os.path.exists(OUT_DIR) else 'НЕ СУЩЕСТВУЕТ'})")
+    info_lines.append(f"📁 CACHE_DIR: {CACHE_DIR}")
+    
+    # Проверка токена
+    token_path = Path(UMP_TOKEN_FILE)
+    info_lines.append(f"\n🔑 ТОКЕН UMP:")
+    info_lines.append(f"   Путь: {UMP_TOKEN_FILE}")
+    info_lines.append(f"   Существует: {'ДА' if token_path.exists() else 'НЕТ'}")
+    if token_path.exists():
+        try:
+            with open(token_path, "r") as f:
+                token = f.read().strip()
+                info_lines.append(f"   Длина: {len(token)} символов")
+        except Exception as e:
+            info_lines.append(f"   Ошибка чтения: {e}")
+    info_lines.append(f"   UMP_USER: {'установлен' if UMP_USER else 'НЕ УСТАНОВЛЕН'}")
+    info_lines.append(f"   UMP_PASS: {'установлен' if UMP_PASS else 'НЕ УСТАНОВЛЕН'}")
+    
+    # Проверка парков
+    try:
+        parks = load_parks()
+        info_lines.append(f"\n🏢 ПАРКИ: найдено {len(parks)}")
+        for p in parks:
+            info_lines.append(f"   - {p['name']}")
+    except Exception as e:
+        info_lines.append(f"\n🏢 ПАРКИ: ошибка загрузки - {e}")
+    
+    # Проверка vehicles.txt
+    if os.path.exists(VEHICLES_FILE):
+        try:
+            sections = parse_vehicles_file_with_sections(VEHICLES_FILE)
+            total = sum(len(nums) for nums in sections.values())
+            info_lines.append(f"\n🚌 VEHICLES.TXT:")
+            info_lines.append(f"   Всего ТС: {total}")
+            info_lines.append(f"   Категорий: {len(sections)}")
+            for cat, nums in list(sections.items())[:3]:
+                info_lines.append(f"   - {cat}: {len(nums)} ТС")
+        except Exception as e:
+            info_lines.append(f"\n🚌 VEHICLES.TXT: ошибка парсинга - {e}")
+    
+    # Проверка выбранного парка
+    user_id = update.effective_user.id
+    selected_park = user_park_cache.get(user_id)
+    info_lines.append(f"\n📍 ВЫБРАННЫЙ ПАРК: {selected_park or 'не выбран (все)'}")
+    
+    # Тест одного ТС
+    info_lines.append(f"\n🧪 ТЕСТ ТС 6400:")
+    try:
+        if ensure_token_with_retry():
+            result = get_position_and_check("6400")
+            if result.get("ok"):
+                info_lines.append(f"   ✅ OK: в парке={result.get('in_park')}, парк={result.get('park_name')}")
+            else:
+                info_lines.append(f"   ❌ Ошибка: {result.get('error')}")
+        else:
+            info_lines.append(f"   ❌ Не удалось получить токен")
+    except Exception as e:
+        info_lines.append(f"   ❌ Исключение: {e}")
+    
+    response = "\n".join(info_lines)
+    log_print(f"TEST RESPONSE:\n{response}")
+    await update.message.reply_text(response)
 
 
 def main() -> None:
     """Запуск бота"""
-    logger.info("=" * 60)
-    logger.info("ЗАПУСК БОТА")
-    logger.info("=" * 60)
+    log_print("=" * 60)
+    log_print("ЗАПУСК БОТА")
+    log_print("=" * 60)
     
     if not BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN не установлен в .env")
+        log_print("TELEGRAM_BOT_TOKEN не установлен в .env", "ERROR")
         return
     
-    logger.info(f"BOT_TOKEN установлен (длина: {len(BOT_TOKEN)})")
-    logger.info(f"VEHICLES_FILE: {VEHICLES_FILE} (существует: {os.path.exists(VEHICLES_FILE)})")
-    logger.info(f"OUT_DIR: {OUT_DIR}")
-    logger.info(f"CACHE_DIR: {CACHE_DIR}")
+    log_print(f"BOT_TOKEN установлен (длина: {len(BOT_TOKEN)})")
+    log_print(f"VEHICLES_FILE: {VEHICLES_FILE} (существует: {os.path.exists(VEHICLES_FILE)})")
+    log_print(f"OUT_DIR: {OUT_DIR}")
+    log_print(f"CACHE_DIR: {CACHE_DIR}")
+    log_print(f"UMP_TOKEN_FILE: {UMP_TOKEN_FILE}")
+    log_print(f"UMP_USER: {'установлен' if UMP_USER else 'НЕ УСТАНОВЛЕН'}")
+    log_print(f"UMP_PASS: {'установлен' if UMP_PASS else 'НЕ УСТАНОВЛЕН'}")
     
     # Проверяем и создаем токен UMP при старте
-    logger.info("Проверяю токен UMP...")
+    log_print("Проверяю токен UMP...")
     if not ensure_token_exists():
-        logger.warning("Токен UMP не создан. Бот будет пытаться создать его при первом запросе.")
+        log_print("Токен UMP не создан. Бот будет пытаться создать его при первом запросе.", "WARNING")
     else:
-        logger.info("Токен UMP готов")
+        log_print("Токен UMP готов")
     
     # Создаем Application
-    logger.info("Создаю Application...")
+    log_print("Создаю Application...")
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Регистрируем обработчики
-    logger.info("Регистрирую обработчики...")
+    log_print("Регистрирую обработчики...")
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("parks", parks_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("map", map_command))
     application.add_handler(CallbackQueryHandler(park_callback, pattern="^park_"))
     # Обработчик текстовых сообщений (для формата vehicles.txt) - должен быть последним
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
-    logger.info("Обработчики зарегистрированы")
+    log_print("Обработчики зарегистрированы")
     
     # Запускаем бота
-    logger.info("=" * 60)
-    logger.info("БОТ ЗАПУЩЕН И ГОТОВ К РАБОТЕ")
-    logger.info("=" * 60)
+    log_print("=" * 60)
+    log_print("БОТ ЗАПУЩЕН И ГОТОВ К РАБОТЕ")
+    log_print("=" * 60)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
