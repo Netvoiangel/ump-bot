@@ -470,6 +470,25 @@ def _parse_args(argv: List[str]) -> Dict:
 
     color_map: Optional[Dict[str, Tuple[str, str]]] = None
     
+    def get_category_color(category: str) -> Tuple[str, str]:
+        """Определяет цвет точки по категории задачи"""
+        category_lower = category.lower()
+        # Проверка ГК (любые маршруты) - желтый
+        if "проверка гк" in category_lower:
+            return "#ffd43b", "#fab005"  # желтый, темно-желтый
+        # Заявки Redmine - синий
+        elif "заявки redmine" in category_lower or "redmine" in category_lower:
+            return "#4dabf7", "#339af0"  # синий, темно-синий
+        # Текущие задачи - оранжевый
+        elif "текущие задачи" in category_lower:
+            return "#ff922b", "#fd7e14"  # оранжевый, темно-оранжевый
+        # Перенос камеры - фиолетовый
+        elif "перенос камеры" in category_lower or "камера" in category_lower:
+            return "#9775fa", "#845ef7"  # фиолетовый, темно-фиолетовый
+        # Остальные - красный (дефолт)
+        else:
+            return "#fa5252", "#c92a2a"  # красный, темно-красный
+    
     if file_path:
         try:
             # Парсим файл с секциями для создания color_map
@@ -478,15 +497,7 @@ def _parse_args(argv: List[str]) -> Dict:
                 color_map = {}
                 # Определяем цвета по категориям
                 for category, depot_list in sections.items():
-                    # ТС из секции "Проверка ГК..." - зеленый/желтый
-                    if "Проверка ГК" in category or category.startswith("Проверка ГК"):
-                        fill_color_special = "#ffd43b"  # желтый
-                        outline_color_special = "#fab005"  # темно-желтый
-                    else:
-                        # Все остальные - красный (дефолт)
-                        fill_color_special = "#fa5252"  # красный
-                        outline_color_special = "#c92a2a"  # темно-красный
-                    
+                    fill_color_special, outline_color_special = get_category_color(category)
                     for depot_num in depot_list:
                         color_map[depot_num] = (fill_color_special, outline_color_special)
                 
