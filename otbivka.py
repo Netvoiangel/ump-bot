@@ -13,8 +13,37 @@ except Exception:
 # ---------- UMP auth/requests ----------
 _SESSION = None
 def _load_token() -> str:
-    with open(UMP_TOKEN_FILE, "r", encoding="utf-8") as f:
-        return f.read().strip()
+    """Загружает токен, при необходимости создает его автоматически"""
+    import os
+    from config import UMP_USER, UMP_PASS
+    
+    # Проверяем существование файла
+    if not os.path.exists(UMP_TOKEN_FILE):
+        # Пытаемся авторизоваться автоматически
+        if _auto_login and UMP_USER and UMP_PASS:
+            try:
+                _auto_login()
+            except Exception as e:
+                raise FileNotFoundError(f"Токен не найден и авторизация не удалась: {e}")
+        else:
+            raise FileNotFoundError(f"Токен не найден: {UMP_TOKEN_FILE}. Установите UMP_USER и UMP_PASS в .env")
+    
+    try:
+        with open(UMP_TOKEN_FILE, "r", encoding="utf-8") as f:
+            token = f.read().strip()
+            if not token:
+                # Токен пустой - пытаемся обновить
+                if _auto_login and UMP_USER and UMP_PASS:
+                    _auto_login()
+                    with open(UMP_TOKEN_FILE, "r", encoding="utf-8") as f2:
+                        token = f2.read().strip()
+                else:
+                    raise ValueError("Токен пустой и авторизация невозможна")
+            return token
+    except FileNotFoundError:
+        raise
+    except Exception as e:
+        raise FileNotFoundError(f"Ошибка чтения токена: {e}")
 
 def _get_session() -> requests.Session:
     global _SESSION
