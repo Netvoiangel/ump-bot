@@ -13,3 +13,6 @@ __pycache__/
 out/
 .tile_cache/
 .DS_Store
+
+# Docker
+*.log

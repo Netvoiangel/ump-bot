@@ -1,0 +1,25 @@
+[Unit]
+Description=UMP Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/ump_bot
+Environment="PATH=/opt/ump_bot/venv/bin"
+ExecStart=/opt/ump_bot/venv/bin/python /opt/ump_bot/telegram_bot.py
+Restart=always
+RestartSec=10
+
+# Ограничение ресурсов для слабого сервера
+CPUQuota=200%
+MemoryLimit=1G
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ump-bot
+
+[Install]
+WantedBy=multi-user.target
+
