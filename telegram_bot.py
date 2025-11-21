@@ -348,21 +348,42 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("🔄 Генерирую карту... Это может занять время.")
     
     try:
-        # Создаем color_map из файла, если есть
+        # Создаем color_map из файла или из переданных sections
         color_map = None
-        if os.path.exists(VEHICLES_FILE):
+        sections = None
+        
+        # Проверяем, есть ли sections в context (переданные из text_handler)
+        if hasattr(context, 'sections') and context.sections:
+            sections = context.sections
+            log_print(f"Использую sections из context: {len(sections)} категорий")
+        elif os.path.exists(VEHICLES_FILE):
             sections = parse_vehicles_file_with_sections(VEHICLES_FILE)
-            if sections:
+            log_print(f"Загрузил sections из файла: {len(sections) if sections else 0} категорий")
+        
+        if sections:
                 def get_category_color(cat: str):
-                    cat_lower = cat.lower()
-                    if "проверка гк" in cat_lower:
+                    """Определяет цвет точки по категории задачи (точная проверка)"""
+                    cat_lower = cat.lower().strip()
+                    cat_clean = cat_lower.rstrip(":")
+                    
+                    # Проверка ГК (любые маршруты) - желтый
+                    if "проверка гк" in cat_clean or cat_clean.startswith("проверка гк"):
                         return "#ffd43b", "#fab005"
-                    elif "заявки redmine" in cat_lower or "redmine" in cat_lower:
+                    # Заявки Redmine - синий
+                    elif ("заявки redmine" in cat_clean or 
+                          cat_clean.startswith("заявки redmine") or
+                          (cat_clean.find("redmine") >= 0 and "заявки" in cat_clean)):
                         return "#4dabf7", "#339af0"
-                    elif "текущие задачи" in cat_lower:
+                    # Текущие задачи - оранжевый
+                    elif ("текущие задачи" in cat_clean or 
+                          cat_clean.startswith("текущие задачи")):
                         return "#ff922b", "#fd7e14"
-                    elif "перенос камеры" in cat_lower or "камера" in cat_lower:
+                    # Перенос камеры - фиолетовый
+                    elif ("перенос камеры" in cat_clean or
+                          cat_clean.startswith("перенос камеры") or
+                          (cat_clean.find("камера") >= 0 and "перенос" in cat_clean)):
                         return "#9775fa", "#845ef7"
+                    # Остальные - красный (дефолт)
                     else:
                         return "#fa5252", "#c92a2a"
                 
@@ -514,15 +535,16 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.message.reply_text("❌ Не найдено номеров ТС в сообщении.")
             return
         
-        log_print(f"Парсинг текста: найдено {len(depot_numbers)} ТС")
+        log_print(f"Парсинг текста: найдено {len(depot_numbers)} ТС из {len(sections)} категорий")
         
-        # Вызываем map_command с этими номерами
-        # Создаем фейковый context с аргументами
+        # Вызываем map_command с этими номерами и секциями
+        # Создаем фейковый context с аргументами и sections
         class FakeContext:
-            def __init__(self, args):
+            def __init__(self, args, sections_data=None):
                 self.args = args
+                self.sections = sections_data  # Передаем sections для создания color_map
         
-        fake_context = FakeContext(depot_numbers)
+        fake_context = FakeContext(depot_numbers, sections)
         await map_command(update, fake_context)
         
     except Exception as e:
