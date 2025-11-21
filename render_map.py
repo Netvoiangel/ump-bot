@@ -16,32 +16,43 @@ def parse_vehicles_file_with_sections(file_path: str) -> Dict[str, List[str]]:
     Парсит vehicles.txt с секциями (заголовки) и возвращает словарь:
     { "category_name": [depot_numbers...], ... }
     """
+    from otbivka import is_valid_depot_number
+    
     result: Dict[str, List[str]] = {}
     current_category = "default"
     
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            for line in f:
+            for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
                     continue
+                
                 # Проверяем, является ли строка заголовком
-                # Заголовок: не состоит только из цифр, и (содержит двоеточие ИЛИ не содержит цифр вообще)
-                is_header = (not line.isdigit()) and (":" in line or not any(c.isdigit() for c in line))
+                # Заголовок: не валидный номер ТС И (содержит двоеточие ИЛИ не содержит цифр вообще)
+                is_valid_number = is_valid_depot_number(line)
+                has_colon = ":" in line
+                has_no_digits = not any(c.isdigit() for c in line)
+                
+                is_header = (not is_valid_number) and (has_colon or has_no_digits)
+                
                 if is_header:
                     # Это заголовок секции
                     current_category = line.rstrip(":").strip()
                     if current_category not in result:
                         result[current_category] = []
                 else:
-                    # Это номер ТС (только цифры)
-                    if line.isdigit():
+                    # Это номер ТС - проверяем валидность
+                    if is_valid_depot_number(line):
                         if current_category not in result:
                             result[current_category] = []
                         if line not in result[current_category]:
                             result[current_category].append(line)
     except Exception as e:
         # Если ошибка — возвращаем пустой словарь
+        import traceback
+        import sys
+        print(f"Ошибка парсинга vehicles.txt: {e}\n{traceback.format_exc()}", file=sys.stderr)
         pass
     
     return result
@@ -472,19 +483,34 @@ def _parse_args(argv: List[str]) -> Dict:
     
     def get_category_color(category: str) -> Tuple[str, str]:
         """Определяет цвет точки по категории задачи"""
-        category_lower = category.lower()
+        category_lower = category.lower().strip()
+        category_clean = category_lower.rstrip(":")
+        
         # Проверка ГК (любые маршруты) - желтый
-        if "проверка гк" in category_lower:
+        # Проверяем точное совпадение или начало строки
+        if "проверка гк" in category_clean or category_clean.startswith("проверка гк"):
             return "#ffd43b", "#fab005"  # желтый, темно-желтый
+        
         # Заявки Redmine - синий
-        elif "заявки redmine" in category_lower or "redmine" in category_lower:
+        # Точная проверка: "заявки redmine" или содержит "redmine" (но не как часть другого слова)
+        elif ("заявки redmine" in category_clean or 
+              category_clean.startswith("заявки redmine") or
+              (category_clean.find("redmine") >= 0 and "заявки" in category_clean)):
             return "#4dabf7", "#339af0"  # синий, темно-синий
+        
         # Текущие задачи - оранжевый
-        elif "текущие задачи" in category_lower:
+        # Точная проверка: "текущие задачи" (с двоеточием или без)
+        elif ("текущие задачи" in category_clean or 
+              category_clean.startswith("текущие задачи")):
             return "#ff922b", "#fd7e14"  # оранжевый, темно-оранжевый
+        
         # Перенос камеры - фиолетовый
-        elif "перенос камеры" in category_lower or "камера" in category_lower:
+        # Проверяем "перенос камеры" или просто "камера" (но не как часть другого слова)
+        elif ("перенос камеры" in category_clean or
+              category_clean.startswith("перенос камеры") or
+              (category_clean.find("камера") >= 0 and "перенос" in category_clean)):
             return "#9775fa", "#845ef7"  # фиолетовый, темно-фиолетовый
+        
         # Остальные - красный (дефолт)
         else:
             return "#fa5252", "#c92a2a"  # красный, темно-красный
