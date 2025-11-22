@@ -1,3 +1,157 @@
+async def render_map_with_numbers(
+    update: Update,
+    depot_numbers: List[str],
+    selected_park: Optional[str],
+    sections: Optional[Dict[str, List[str]]] = None,
+) -> None:
+    """Рендер карты для указанного списка ТС"""
+    if not depot_numbers:
+        await update.message.reply_text("❌ Не переданы номера ТС для построения карты.")
+        return
+
+    # Ограничение количества ТС
+    if len(depot_numbers) > 50:
+        depot_numbers = depot_numbers[:50]
+        await update.message.reply_text(
+            f"⚠️ Обрабатываю только первые 50 ТС. Остальные обрезаны."
+        )
+
+    log_print(f"render_map_with_numbers: {len(depot_numbers)} ТС, парк={selected_park}")
+
+    # Проверяем токен
+    if not ensure_token_with_retry():
+        log_print("Не удалось получить токен UMP", "ERROR")
+        await update.message.reply_text(
+            "❌ Ошибка авторизации в UMP. Проверьте UMP_USER и UMP_PASS."
+        )
+        return
+
+    await update.message.reply_text("🔄 Генерирую карту... Это может занять время.")
+
+    # Создаем color map
+    color_map = build_color_map_from_sections(sections)
+
+    try:
+        # Отладочные проверки первых ТС
+        sample_results = []
+        for dep in depot_numbers[:5]:
+            try:
+                result = get_position_and_check(dep)
+                sample_results.append(result)
+                log_print(
+                    f"ТС {dep}: ok={result.get('ok')}, park={result.get('park_name')}, in_park={result.get('in_park')}"
+                )
+            except Exception as e:
+                log_print(f"Ошибка проверки ТС {dep}: {e}", "ERROR")
+
+        files = render_parks_with_vehicles(
+            depot_numbers=depot_numbers,
+            out_dir=OUT_DIR,
+            size="1200x800",
+            use_real_map=True,
+            zoom=17,
+            tile_provider=os.getenv("MAP_PROVIDER", ""),
+            tile_cache=CACHE_DIR,
+            tile_user_agent=os.getenv("MAP_USER_AGENT", ""),
+            tile_referer=os.getenv("MAP_REFERER", ""),
+            tile_apikey=os.getenv("MAPTILER_API_KEY", ""),
+            tile_rate_tps=3.0,
+            park_filter=selected_park,
+            color_map=color_map,
+            debug=True,
+        )
+
+        if not files:
+            debug_info = f"Обработано ТС: {len(depot_numbers)}\n"
+            debug_info += f"Парк: {selected_park or 'все'}\n"
+            if sample_results:
+                debug_info += "\nПримеры:\n"
+                for r in sample_results:
+                    if r.get("ok"):
+                        status = "✅ в парке" if r.get("in_park") else "❌ вне парка"
+                        debug_info += f"  {r.get('depot_number')}: {status} ({r.get('park_name') or '—'})\n"
+                    else:
+                        debug_info += f"  {r.get('depot_number')}: ошибка {r.get('error')}\n"
+            await update.message.reply_text(
+                "❌ Нет ТС внутри парков для отображения.\n\n" + debug_info
+            )
+            return
+
+        for file_path in files:
+            try:
+                file_size = os.path.getsize(file_path)
+                if file_size > MAX_IMAGE_SIZE:
+                    await update.message.reply_text(
+                        f"⚠️ Изображение слишком большое ({file_size // 1024 // 1024}MB)"
+                    )
+                    continue
+                with open(file_path, "rb") as photo:
+                    park_name = Path(file_path).stem.replace("park_", "")
+                    caption = f"📍 Парк: {park_name}\n🚌 ТС: {len(depot_numbers)}"
+                    await update.message.reply_photo(photo=photo, caption=caption)
+            except Exception as e:
+                log_print(f"Ошибка отправки изображения {file_path}: {e}", "ERROR")
+                await update.message.reply_text(f"❌ Ошибка отправки изображения: {e}")
+    except FileNotFoundError as e:
+        if "ump_token" in str(e).lower():
+            log_print(f"Token file not found: {e}", "ERROR")
+            await update.message.reply_text("🔄 Токен не найден, пытаюсь авторизоваться...")
+            if ensure_token_with_retry():
+                await update.message.reply_text("✅ Авторизация успешна. Повторите команду.")
+            else:
+                await update.message.reply_text("❌ Ошибка авторизации. Проверьте настройки.")
+        else:
+            await update.message.reply_text(f"❌ Файл не найден: {e}")
+    except Exception as e:
+        log_print(f"Error in render_map_with_numbers: {e}", "ERROR")
+        import traceback
+        log_print(traceback.format_exc(), "ERROR")
+        await update.message.reply_text(f"❌ Ошибка генерации карты: {e}")
+
+# ---------- Helpers ----------
+def determine_category_color(category: str) -> Tuple[str, str]:
+    """Возвращает цвет точки по названию категории"""
+    cat_lower = (category or "").lower().strip()
+    cat_clean = cat_lower.rstrip(":")
+
+    if "проверка гк" in cat_clean or cat_clean.startswith("проверка гк"):
+        return "#ffd43b", "#fab005"
+    if ("заявки redmine" in cat_clean
+            or cat_clean.startswith("заявки redmine")
+            or ("redmine" in cat_clean and "заявк" in cat_clean)):
+        return "#4dabf7", "#339af0"
+    if "текущие задачи" in cat_clean or cat_clean.startswith("текущие задачи"):
+        return "#ff922b", "#fd7e14"
+    if ("перенос камеры" in cat_clean
+            or cat_clean.startswith("перенос камеры")
+            or ("камера" in cat_clean and "перенос" in cat_clean)):
+        return "#9775fa", "#845ef7"
+    return "#fa5252", "#c92a2a"
+
+
+def build_color_map_from_sections(sections: Optional[Dict[str, List[str]]]) -> Dict[str, Tuple[str, str]]:
+    """Создает карту цветов по секциям"""
+    color_map: Dict[str, Tuple[str, str]] = {}
+    if not sections:
+        return color_map
+    for category, numbers in sections.items():
+        fill, outline = determine_category_color(category)
+        for num in numbers:
+            color_map[str(num)] = (fill, outline)
+    return color_map
+
+
+def deduplicate_numbers(numbers: List[str]) -> List[str]:
+    seen = set()
+    result = []
+    for n in numbers:
+        n = str(n).strip()
+        if not n or n in seen:
+            continue
+        seen.add(n)
+        result.append(n)
+    return result
+
 # telegram_bot.py
 import os
 import json
@@ -57,8 +211,9 @@ OUT_DIR = os.getenv("MAP_OUT_DIR", "out")
 CACHE_DIR = os.getenv("MAP_CACHE_DIR", ".tile_cache")
 MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE_MB", "10")) * 1024 * 1024  # 10MB по умолчанию
 
-# Кэш выбранных парков для пользователей
+# Кэш выбранных парков и пользовательских данных
 user_park_cache: Dict[int, str] = {}
+user_input_cache: Dict[int, Dict[str, List[str]]] = {}
 
 
 def ensure_token_exists() -> bool:
@@ -302,194 +457,48 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         log_print(f"Доступ запрещен для user={update.effective_user.id}", "WARNING")
         return
     
-    # Проверяем токен перед выполнением
-    log_print("Проверяю токен UMP...")
-    if not ensure_token_with_retry():
-        log_print("Ошибка авторизации в UMP", "ERROR")
-        await update.message.reply_text(
-            "❌ Ошибка авторизации в UMP. Проверьте UMP_USER и UMP_PASS в .env"
-        )
-        return
-    log_print("Токен UMP готов")
-    
     user_id = update.effective_user.id
     selected_park = user_park_cache.get(user_id)
     log_print(f"map_command: user={user_id}, park={selected_park}, args={context.args}")
-    
-    # Парсим номера ТС из аргументов или используем файл
-    depot_numbers = []
+
+    depot_numbers: List[str] = []
+    sections: Optional[Dict[str, List[str]]] = None
+
     if context.args:
-        depot_numbers = [d for d in context.args if d.isdigit()]
+        depot_numbers = deduplicate_numbers(
+            [d for d in context.args if is_valid_depot_number(d)]
+        )
         log_print(f"Номера из аргументов: {depot_numbers}")
-    
-    # Если номеров нет, используем файл
+
+    if not depot_numbers and user_id in user_input_cache:
+        cache = user_input_cache[user_id]
+        depot_numbers = cache.get("numbers", []) or []
+        sections = cache.get("sections")
+        log_print(f"Использую кэш пользователя: {len(depot_numbers)} ТС")
+
     if not depot_numbers and os.path.exists(VEHICLES_FILE):
         log_print(f"Читаю файл {VEHICLES_FILE}")
         sections = parse_vehicles_file_with_sections(VEHICLES_FILE)
-        for category, numbers in sections.items():
-            depot_numbers.extend(numbers)
-        depot_numbers = list(set(depot_numbers))  # убираем дубликаты
+        all_numbers = []
+        for nums in sections.values():
+            all_numbers.extend(nums)
+        depot_numbers = deduplicate_numbers(all_numbers)
         log_print(f"Номера из файла: {len(depot_numbers)} ТС")
-    
+
     if not depot_numbers:
         await update.message.reply_text(
-            "❌ Не указаны номера ТС и файл vehicles.txt не найден.\n"
-            "Использование: /map [номера] или создайте vehicles.txt"
+            "❌ Не указаны номера ТС. Отправьте текст с задачами или используйте /map 1234 5678"
         )
         return
-    
-    # Ограничение количества ТС для слабого сервера
-    if len(depot_numbers) > 50:
-        depot_numbers = depot_numbers[:50]
-        await update.message.reply_text(
-            f"⚠️ Обрабатывается только первые 50 ТС из {len(depot_numbers)}"
-        )
-    
-    await update.message.reply_text("🔄 Генерирую карту... Это может занять время.")
-    
-    try:
-        # Создаем color_map из файла или из переданных sections
-        color_map = None
-        sections = None
-        
-        # Проверяем, есть ли sections в context (переданные из text_handler)
-        if hasattr(context, 'sections') and context.sections:
-            sections = context.sections
-            log_print(f"Использую sections из context: {len(sections)} категорий")
-        elif os.path.exists(VEHICLES_FILE):
-            sections = parse_vehicles_file_with_sections(VEHICLES_FILE)
-            log_print(f"Загрузил sections из файла: {len(sections) if sections else 0} категорий")
-        
-        if sections:
-                def get_category_color(cat: str):
-                    """Определяет цвет точки по категории задачи (точная проверка)"""
-                    cat_lower = cat.lower().strip()
-                    cat_clean = cat_lower.rstrip(":")
-                    
-                    # Проверка ГК (любые маршруты) - желтый
-                    if "проверка гк" in cat_clean or cat_clean.startswith("проверка гк"):
-                        return "#ffd43b", "#fab005"
-                    # Заявки Redmine - синий
-                    elif ("заявки redmine" in cat_clean or 
-                          cat_clean.startswith("заявки redmine") or
-                          (cat_clean.find("redmine") >= 0 and "заявки" in cat_clean)):
-                        return "#4dabf7", "#339af0"
-                    # Текущие задачи - оранжевый
-                    elif ("текущие задачи" in cat_clean or 
-                          cat_clean.startswith("текущие задачи")):
-                        return "#ff922b", "#fd7e14"
-                    # Перенос камеры - фиолетовый
-                    elif ("перенос камеры" in cat_clean or
-                          cat_clean.startswith("перенос камеры") or
-                          (cat_clean.find("камера") >= 0 and "перенос" in cat_clean)):
-                        return "#9775fa", "#845ef7"
-                    # Остальные - красный (дефолт)
-                    else:
-                        return "#fa5252", "#c92a2a"
-                
-                color_map = {}
-                for category, numbers in sections.items():
-                    fill, outline = get_category_color(category)
-                    for num in numbers:
-                        color_map[num] = (fill, outline)
-        
-        # Сначала проверяем статус ТС для отладки
-        log_print(f"Проверяю статус {len(depot_numbers)} ТС...")
-        sample_results = []
-        for i, dep_num in enumerate(depot_numbers[:5]):  # Проверяем первые 5 для отладки
-            try:
-                result = get_position_and_check(dep_num)
-                sample_results.append(result)
-                log_print(f"ТС {dep_num}: ok={result.get('ok')}, in_park={result.get('in_park')}, park={result.get('park_name')}")
-            except Exception as e:
-                log_print(f"Ошибка проверки ТС {dep_num}: {e}", "ERROR")
-        
-        # Рендерим карту
-        log_print(f"Рендеринг карты: {len(depot_numbers)} ТС, парк={selected_park}")
-        files = render_parks_with_vehicles(
-            depot_numbers=depot_numbers,
-            out_dir=OUT_DIR,
-            size="1200x800",  # Оптимизированный размер для слабого сервера
-            use_real_map=True,
-            zoom=17,  # Можно снизить до 16 для экономии ресурсов
-            tile_provider=os.getenv("MAP_PROVIDER", ""),
-            tile_cache=CACHE_DIR,
-            tile_user_agent=os.getenv("MAP_USER_AGENT", ""),
-            tile_referer=os.getenv("MAP_REFERER", ""),
-            tile_apikey=os.getenv("MAPTILER_API_KEY", ""),
-            tile_rate_tps=3.0,  # Снижено для слабого сервера
-            park_filter=selected_park,
-            color_map=color_map,
-            debug=True,  # Включаем отладку
-        )
-        log_print(f"Сгенерировано файлов: {len(files) if files else 0}")
-        
-        if not files:
-            # Подробная информация для отладки
-            in_park_count = sum(1 for r in sample_results if r.get('ok') and r.get('in_park'))
-            error_count = sum(1 for r in sample_results if not r.get('ok'))
-            logger.warning(
-                f"Нет файлов для отправки. "
-                f"ТС: {len(depot_numbers)}, "
-                f"Парк: {selected_park}, "
-                f"В парке (из 5 проверенных): {in_park_count}, "
-                f"Ошибок: {error_count}"
-            )
-            
-            # Формируем детальное сообщение
-            debug_info = f"Обработано ТС: {len(depot_numbers)}\n"
-            debug_info += f"Парк: {selected_park or 'все'}\n"
-            if sample_results:
-                debug_info += f"\nПримеры (первые 5):\n"
-                for r in sample_results[:3]:
-                    if r.get('ok'):
-                        status = "✅ в парке" if r.get('in_park') else "❌ вне парка"
-                        debug_info += f"  ТС {r.get('depot_number')}: {status} ({r.get('park_name') or '—'})\n"
-                    else:
-                        debug_info += f"  ТС {r.get('depot_number')}: ошибка {r.get('error')}\n"
-            
-            await update.message.reply_text(
-                f"❌ Нет ТС внутри парков для отображения.\n\n{debug_info}\n"
-                f"Попробуйте: /parks для выбора парка или /status [номер] для проверки ТС"
-            )
-            return
-        
-        # Отправляем изображения
-        for file_path in files:
-            try:
-                file_size = os.path.getsize(file_path)
-                if file_size > MAX_IMAGE_SIZE:
-                    await update.message.reply_text(
-                        f"⚠️ Изображение слишком большое ({file_size // 1024 // 1024}MB). "
-                        f"Попробуйте указать меньше ТС."
-                    )
-                    continue
-                
-                with open(file_path, "rb") as photo:
-                    park_name = Path(file_path).stem.replace("park_", "")
-                    caption = f"📍 Парк: {park_name}\n🚌 ТС: {len(depot_numbers)}"
-                    await update.message.reply_photo(photo=photo, caption=caption)
-            except Exception as e:
-                logger.error(f"Error sending image {file_path}: {e}", exc_info=True)
-                await update.message.reply_text(f"❌ Ошибка отправки изображения: {str(e)}")
-        
-    except FileNotFoundError as e:
-        if "ump_token" in str(e) or "token" in str(e).lower():
-            logger.error(f"Token file not found: {e}", exc_info=True)
-            await update.message.reply_text("🔄 Токен не найден, пытаюсь авторизоваться...")
-            if ensure_token_with_retry():
-                await update.message.reply_text("✅ Авторизация успешна. Попробуйте команду снова.")
-            else:
-                await update.message.reply_text("❌ Ошибка авторизации. Проверьте настройки.")
-        else:
-            logger.error(f"File not found: {e}", exc_info=True)
-            await update.message.reply_text(f"❌ Файл не найден: {str(e)}")
-    except Exception as e:
-        logger.error(f"Error in map_command: {e}", exc_info=True)
-        import traceback
-        error_details = traceback.format_exc()
-        logger.error(f"Full traceback: {error_details}")
-        await update.message.reply_text(f"❌ Ошибка генерации карты: {str(e)}")
+
+    user_input_cache[user_id] = {"numbers": depot_numbers, "sections": sections}
+
+    await render_map_with_numbers(
+        update=update,
+        depot_numbers=depot_numbers,
+        selected_park=selected_park,
+        sections=sections,
+    )
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -536,16 +545,19 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
         
         log_print(f"Парсинг текста: найдено {len(depot_numbers)} ТС из {len(sections)} категорий")
-        
-        # Вызываем map_command с этими номерами и секциями
-        # Создаем фейковый context с аргументами и sections
-        class FakeContext:
-            def __init__(self, args, sections_data=None):
-                self.args = args
-                self.sections = sections_data  # Передаем sections для создания color_map
-        
-        fake_context = FakeContext(depot_numbers, sections)
-        await map_command(update, fake_context)
+
+        # Сохраняем ввод пользователя
+        user_input_cache[update.effective_user.id] = {
+            "numbers": depot_numbers,
+            "sections": sections,
+        }
+
+        await render_map_with_numbers(
+            update=update,
+            depot_numbers=depot_numbers,
+            selected_park=user_park_cache.get(update.effective_user.id),
+            sections=sections,
+        )
         
     except Exception as e:
         log_print(f"Error parsing text: {e}", "ERROR")
