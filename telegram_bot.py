@@ -172,7 +172,11 @@ from telegram.ext import (
 from dotenv import load_dotenv
 
 from otbivka import load_parks, batch_get_positions, get_position_and_check
-from render_map import render_parks_with_vehicles, parse_vehicles_file_with_sections
+from render_map import (
+    render_parks_with_vehicles,
+    parse_vehicles_file_with_sections,
+    parse_sections_from_text,
+)
 from login_token import login_and_save
 from config import UMP_TOKEN_FILE, UMP_USER, UMP_PASS
 
@@ -211,9 +215,8 @@ OUT_DIR = os.getenv("MAP_OUT_DIR", "out")
 CACHE_DIR = os.getenv("MAP_CACHE_DIR", ".tile_cache")
 MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE_MB", "10")) * 1024 * 1024  # 10MB по умолчанию
 
-# Кэш выбранных парков и пользовательских данных
+# Кэш выбранных парков
 user_park_cache: Dict[int, str] = {}
-user_input_cache: Dict[int, Dict[str, List[str]]] = {}
 
 
 def ensure_token_exists() -> bool:
@@ -449,7 +452,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Команда /map - рендер карты"""
+    """Команда /map - рендер карты ТОЛЬКО с явно переданными номерами"""
     log_print("=" * 50)
     log_print("map_command вызван")
     
@@ -461,43 +464,33 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     selected_park = user_park_cache.get(user_id)
     log_print(f"map_command: user={user_id}, park={selected_park}, args={context.args}")
 
-    depot_numbers: List[str] = []
-    sections: Optional[Dict[str, List[str]]] = None
-
-    if context.args:
-        depot_numbers = deduplicate_numbers(
-            [d for d in context.args if is_valid_depot_number(d)]
-        )
-        log_print(f"Номера из аргументов: {depot_numbers}")
-
-    if not depot_numbers and user_id in user_input_cache:
-        cache = user_input_cache[user_id]
-        depot_numbers = cache.get("numbers", []) or []
-        sections = cache.get("sections")
-        log_print(f"Использую кэш пользователя: {len(depot_numbers)} ТС")
-
-    if not depot_numbers and os.path.exists(VEHICLES_FILE):
-        log_print(f"Читаю файл {VEHICLES_FILE}")
-        sections = parse_vehicles_file_with_sections(VEHICLES_FILE)
-        all_numbers = []
-        for nums in sections.values():
-            all_numbers.extend(nums)
-        depot_numbers = deduplicate_numbers(all_numbers)
-        log_print(f"Номера из файла: {len(depot_numbers)} ТС")
-
-    if not depot_numbers:
+    # ТОЛЬКО явно переданные аргументы
+    if not context.args:
         await update.message.reply_text(
-            "❌ Не указаны номера ТС. Отправьте текст с задачами или используйте /map 1234 5678"
+            "❌ Укажите номера ТС. Пример: /map 6683 6719 6306\n\n"
+            "Или просто отправьте текст с задачами (без команды /map)"
         )
         return
 
-    user_input_cache[user_id] = {"numbers": depot_numbers, "sections": sections}
+    depot_numbers = deduplicate_numbers(
+        [d for d in context.args if is_valid_depot_number(d)]
+    )
+    
+    if not depot_numbers:
+        await update.message.reply_text(
+            "❌ Не найдено валидных номеров ТС в аргументах.\n"
+            "Пример: /map 6683 6719 6306"
+        )
+        return
 
+    log_print(f"Номера из аргументов: {depot_numbers}")
+
+    # Без категорий для /map с аргументами - все точки будут красными
     await render_map_with_numbers(
         update=update,
         depot_numbers=depot_numbers,
         selected_park=selected_park,
-        sections=sections,
+        sections=None,  # Нет категорий для явных номеров
     )
 
 
@@ -521,23 +514,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         log_print("Пропущена команда")
         return
     
-    # Парсим текст как vehicles.txt
     try:
-        # Создаем временный файл
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
-            f.write(text)
-            temp_file = f.name
-        
-        # Парсим секции
-        sections = parse_vehicles_file_with_sections(temp_file)
-        depot_numbers = []
-        for category, numbers in sections.items():
-            depot_numbers.extend(numbers)
-        depot_numbers = list(set(depot_numbers))
-        
-        # Удаляем временный файл
-        os.unlink(temp_file)
+        sections = parse_sections_from_text(text)
+        depot_numbers = deduplicate_numbers(
+            [num for nums in sections.values() for num in nums]
+        )
         
         if not depot_numbers:
             log_print("Не найдено номеров ТС в сообщении", "WARNING")
@@ -546,12 +527,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         
         log_print(f"Парсинг текста: найдено {len(depot_numbers)} ТС из {len(sections)} категорий")
 
-        # Сохраняем ввод пользователя
-        user_input_cache[update.effective_user.id] = {
-            "numbers": depot_numbers,
-            "sections": sections,
-        }
-
+        # Сразу генерируем карту с цветами на основе текста
         await render_map_with_numbers(
             update=update,
             depot_numbers=depot_numbers,

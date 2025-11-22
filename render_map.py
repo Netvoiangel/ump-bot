@@ -11,51 +11,54 @@ def _normalize_token(tok: str) -> str:
     return tok.strip()
 
 
+def _parse_sections_from_lines(lines: List[str]) -> Dict[str, List[str]]:
+    """Парсит секции из списка строк"""
+    from otbivka import is_valid_depot_number
+
+    result: Dict[str, List[str]] = {}
+    current_category = "default"
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        is_valid_number = is_valid_depot_number(line)
+        has_colon = ":" in line
+        has_no_digits = not any(c.isdigit() for c in line)
+        is_header = (not is_valid_number) and (has_colon or has_no_digits)
+
+        if is_header:
+            current_category = line.rstrip(":").strip() or "default"
+            result.setdefault(current_category, [])
+        else:
+            if is_valid_number:
+                result.setdefault(current_category, [])
+                if line not in result[current_category]:
+                    result[current_category].append(line)
+    return result
+
+
 def parse_vehicles_file_with_sections(file_path: str) -> Dict[str, List[str]]:
     """
     Парсит vehicles.txt с секциями (заголовки) и возвращает словарь:
     { "category_name": [depot_numbers...], ... }
     """
-    from otbivka import is_valid_depot_number
-    
-    result: Dict[str, List[str]] = {}
-    current_category = "default"
-    
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Проверяем, является ли строка заголовком
-                # Заголовок: не валидный номер ТС И (содержит двоеточие ИЛИ не содержит цифр вообще)
-                is_valid_number = is_valid_depot_number(line)
-                has_colon = ":" in line
-                has_no_digits = not any(c.isdigit() for c in line)
-                
-                is_header = (not is_valid_number) and (has_colon or has_no_digits)
-                
-                if is_header:
-                    # Это заголовок секции
-                    current_category = line.rstrip(":").strip()
-                    if current_category not in result:
-                        result[current_category] = []
-                else:
-                    # Это номер ТС - проверяем валидность
-                    if is_valid_depot_number(line):
-                        if current_category not in result:
-                            result[current_category] = []
-                        if line not in result[current_category]:
-                            result[current_category].append(line)
+            lines = f.readlines()
+        return _parse_sections_from_lines(lines)
     except Exception as e:
-        # Если ошибка — возвращаем пустой словарь
         import traceback
         import sys
         print(f"Ошибка парсинга vehicles.txt: {e}\n{traceback.format_exc()}", file=sys.stderr)
-        pass
-    
-    return result
+        return {}
+
+
+def parse_sections_from_text(text: str) -> Dict[str, List[str]]:
+    """Парсит секции из произвольного текста"""
+    lines = text.splitlines()
+    return _parse_sections_from_lines(lines)
 
 
 def _parse_size(s: str) -> Tuple[int, int]:
