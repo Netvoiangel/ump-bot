@@ -29,7 +29,7 @@ def _load_token() -> str:
             raise FileNotFoundError(f"Токен не найден: {UMP_TOKEN_FILE}. Установите UMP_USER и UMP_PASS в .env")
     
     try:
-        with open(UMP_TOKEN_FILE, "r", encoding="utf-8") as f:
+    with open(UMP_TOKEN_FILE, "r", encoding="utf-8") as f:
             token = f.read().strip()
             if not token:
                 # Токен пустой - пытаемся обновить
@@ -87,7 +87,7 @@ def get_vehicle_id_by_depot_number(depot_number: str) -> Optional[int]:
     for attempt in range(2):
         try:
             r = s.post(url, params={"number": str(depot_number)}, json={}, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
-            r.raise_for_status()
+    r.raise_for_status()
             break
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code == 401 and _auto_login and attempt == 0:
@@ -113,8 +113,8 @@ def fetch_online_by_vehicle_id(vehicle_id: int) -> Dict:
     for attempt in range(3):
         try:
             r = s.get(url, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
-            r.raise_for_status()
-            data = r.json() if "application/json" in r.headers.get("Content-Type","") else {}
+    r.raise_for_status()
+    data = r.json() if "application/json" in r.headers.get("Content-Type","") else {}
             break
         except Exception as e:
             last_exc = e
@@ -272,7 +272,7 @@ def get_position_and_check(depot_number: str) -> Dict:
     if vid is None:
         return {"ok": False, "depot_number": depot_number, "error": "vehicle_id_not_found"}
     try:
-        pos = fetch_online_by_vehicle_id(vid)
+    pos = fetch_online_by_vehicle_id(vid)
     except Exception as e:
         cached = _load_cached_position(vid)
         if cached:
@@ -418,13 +418,13 @@ if __name__ == "__main__":
     # обратная совместимость: один аргумент — как раньше
     if len(args) == 1 and args[0] and args[0] != "--file":
         depot = args[0]
-        try:
-            out = get_position_and_check(depot)
-            print(json.dumps(out, ensure_ascii=False, indent=2))
-        except requests.HTTPError as e:
-            print("HTTP error:", e.response.status_code, e.response.text[:400])
-        except Exception as e:
-            print("Error:", e)
+    try:
+        out = get_position_and_check(depot)
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+    except requests.HTTPError as e:
+        print("HTTP error:", e.response.status_code, e.response.text[:400])
+    except Exception as e:
+        print("Error:", e)
         raise SystemExit(0)
 
     # пакетный режим
