@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 async def render_map_with_numbers(
     update: Update,
     depot_numbers: List[str],
