@@ -202,6 +202,15 @@ def render_parks_with_vehicles(
     park_filter: Optional[str] = None,
     color_map: Optional[Dict[str, Tuple[str, str]]] = None,
 ) -> List[str]:
+    # Отладка color_map
+    if debug:
+        if color_map:
+            print(f"[DEBUG] color_map передан: {len(color_map)} ТС")
+            for dep, colors in list(color_map.items())[:5]:
+                print(f"[DEBUG]   {dep} -> {colors}")
+        else:
+            print("[DEBUG] color_map = None (все точки будут красными)")
+    
     # загрузим .env для поддержки MAPTILER_API_KEY, MAP_USER_AGENT, MAP_REFERER
     try:
         load_dotenv()
@@ -326,6 +335,10 @@ def render_parks_with_vehicles(
             outline_col = vehicle_outline
             if color_map and dep in color_map:
                 fill_col, outline_col = color_map[dep]
+                if debug:
+                    print(f"[DEBUG] ТС {dep}: цвет {fill_col} (из color_map)")
+            elif debug and color_map:
+                print(f"[DEBUG] ТС {dep}: цвет по умолчанию {fill_col} (нет в color_map, ключи: {list(color_map.keys())[:5]})")
             draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill_col, outline=outline_col)
             # подпись с фоновой коробкой
             tx, ty = cx + r + 6, cy - r - 14

@@ -30,6 +30,13 @@ async def render_map_with_numbers(
 
     # Создаем color map
     color_map = build_color_map_from_sections(sections)
+    log_print(f"color_map создан: {len(color_map)} ТС с цветами")
+    if color_map:
+        log_print(f"Примеры цветов: {list(color_map.items())[:3]}")
+    if sections:
+        log_print(f"sections: {list(sections.keys())}")
+        for cat, nums in sections.items():
+            log_print(f"  {cat}: {nums[:3]}... (всего {len(nums)})")
 
     try:
         # Отладочные проверки первых ТС
@@ -133,11 +140,19 @@ def build_color_map_from_sections(sections: Optional[Dict[str, List[str]]]) -> D
     """Создает карту цветов по секциям"""
     color_map: Dict[str, Tuple[str, str]] = {}
     if not sections:
+        log_print("build_color_map_from_sections: sections пустые или None")
         return color_map
+    
+    log_print(f"build_color_map_from_sections: обрабатываю {len(sections)} категорий")
     for category, numbers in sections.items():
         fill, outline = determine_category_color(category)
+        log_print(f"  Категория '{category}': цвет {fill}, ТС: {numbers}")
         for num in numbers:
-            color_map[str(num)] = (fill, outline)
+            # Нормализуем номер (убираем пробелы, приводим к строке)
+            normalized_num = str(num).strip()
+            color_map[normalized_num] = (fill, outline)
+    
+    log_print(f"build_color_map_from_sections: создано {len(color_map)} записей в color_map")
     return color_map
 
 
@@ -526,6 +541,9 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
         
         log_print(f"Парсинг текста: найдено {len(depot_numbers)} ТС из {len(sections)} категорий")
+        log_print(f"Категории: {list(sections.keys())}")
+        for cat, nums in sections.items():
+            log_print(f"  {cat}: {nums}")
 
         # Сразу генерируем карту с цветами на основе текста
         await render_map_with_numbers(
