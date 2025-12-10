@@ -12,24 +12,36 @@ except Exception:
 
 # ---------- UMP auth/requests ----------
 _SESSION = None
-def _load_token() -> str:
-    """Загружает токен, при необходимости создает его автоматически"""
+def _load_token(token_override: Optional[str] = None, token_path: Optional[str] = None) -> str:
+    """
+    Загружает токен UMP.
+    Если передан token_override — используется он, без чтения файла.
+    Если указан token_path — читается файл по этому пути (без авто-логина из env).
+    """
     import os
     from config import UMP_USER, UMP_PASS
-    
+
+    if token_override:
+        tok = token_override.strip()
+        if not tok:
+            raise ValueError("Передан пустой токен UMP")
+        return tok
+
+    path = token_path or UMP_TOKEN_FILE
+
     # Проверяем существование файла
-    if not os.path.exists(UMP_TOKEN_FILE):
-        # Пытаемся авторизоваться автоматически
-        if _auto_login and UMP_USER and UMP_PASS:
+    if not os.path.exists(path):
+        # Авто-логин разрешаем только для стандартного пути и когда заданы креды в env
+        if _auto_login and not token_path and UMP_USER and UMP_PASS:
             try:
                 _auto_login()
             except Exception as e:
                 raise FileNotFoundError(f"Токен не найден и авторизация не удалась: {e}")
         else:
-            raise FileNotFoundError(f"Токен не найден: {UMP_TOKEN_FILE}. Установите UMP_USER и UMP_PASS в .env")
+            raise FileNotFoundError(f"Токен не найден: {path}. Выполните авторизацию.")
     
     try:
-        with open(UMP_TOKEN_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             token = f.read().strip()
     except FileNotFoundError:
         raise
@@ -37,10 +49,10 @@ def _load_token() -> str:
         raise FileNotFoundError(f"Ошибка чтения токена: {e}")
 
     if not token:
-        # Токен пустой - пытаемся обновить
-        if _auto_login and UMP_USER and UMP_PASS:
+        # Токен пустой - пытаемся обновить (только при стандартном пути и автологине)
+        if _auto_login and not token_path and UMP_USER and UMP_PASS:
             _auto_login()
-            with open(UMP_TOKEN_FILE, "r", encoding="utf-8") as f2:
+            with open(path, "r", encoding="utf-8") as f2:
                 token = f2.read().strip()
         else:
             raise ValueError("Токен пустой и авторизация невозможна")
@@ -52,8 +64,8 @@ def _get_session() -> requests.Session:
         _SESSION = requests.Session()
     return _SESSION
 
-def _auth_headers() -> Dict[str, str]:
-    t = _load_token()
+def _auth_headers(token: Optional[str] = None, token_path: Optional[str] = None) -> Dict[str, str]:
+    t = _load_token(token_override=token, token_path=token_path)
     return {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -82,7 +94,11 @@ def parse_wkt_point(s: str) -> Optional[Tuple[float,float]]:
     lon, lat = float(m.group(1)), float(m.group(2))
     return (lat, lon)  # возвращаем (lat, lon)
 
-def get_vehicle_id_by_depot_number(depot_number: str) -> Optional[int]:
+def get_vehicle_id_by_depot_number(
+    depot_number: str,
+    token: Optional[str] = None,
+    token_path: Optional[str] = None,
+) -> Optional[int]:
     url = f"{UMP_BASE_URL}/api/v1/map/vehicles"
     s = _get_session()
     for attempt in range(2):
@@ -91,13 +107,20 @@ def get_vehicle_id_by_depot_number(depot_number: str) -> Optional[int]:
                 url,
                 params={"number": str(depot_number)},
                 json={},
-                headers=_auth_headers(),
+                headers=_auth_headers(token=token, token_path=token_path),
                 timeout=REQUEST_TIMEOUT,
             )
             r.raise_for_status()
             break
         except requests.HTTPError as e:
-            if e.response is not None and e.response.status_code == 401 and _auto_login and attempt == 0:
+            if (
+                e.response is not None
+                and e.response.status_code == 401
+                and _auto_login
+                and attempt == 0
+                and token is None
+                and token_path is None
+            ):
                 _auto_login()
                 continue
             raise
@@ -113,13 +136,21 @@ def get_vehicle_id_by_depot_number(depot_number: str) -> Optional[int]:
             return int(vid)
     return None
 
-def fetch_online_by_vehicle_id(vehicle_id: int) -> Dict:
+def fetch_online_by_vehicle_id(
+    vehicle_id: int,
+    token: Optional[str] = None,
+    token_path: Optional[str] = None,
+) -> Dict:
     url = f"{UMP_BASE_URL}/api/v1/map/online/{vehicle_id}"
     s = _get_session()
     last_exc = None
     for attempt in range(3):
         try:
-            r = s.get(url, headers=_auth_headers(), timeout=REQUEST_TIMEOUT)
+            r = s.get(
+                url,
+                headers=_auth_headers(token=token, token_path=token_path),
+                timeout=REQUEST_TIMEOUT,
+            )
             r.raise_for_status()
             data = (
                 r.json()
@@ -130,7 +161,15 @@ def fetch_online_by_vehicle_id(vehicle_id: int) -> Dict:
         except Exception as e:
             last_exc = e
             # если 401 — один раз пробуем перелогиниться
-            if isinstance(e, requests.HTTPError) and e.response is not None and e.response.status_code == 401 and _auto_login and attempt < 2:
+            if (
+                isinstance(e, requests.HTTPError)
+                and e.response is not None
+                and e.response.status_code == 401
+                and _auto_login
+                and attempt < 2
+                and token is None
+                and token_path is None
+            ):
                 _auto_login()
                 continue
             if attempt < 2:
@@ -278,12 +317,16 @@ def locate_park(lon: float, lat: float, parks: List[Dict]) -> Optional[str]:
     return None
 
 # ---------- Orchestrator ----------
-def get_position_and_check(depot_number: str) -> Dict:
-    vid = get_vehicle_id_by_depot_number(depot_number)
+def get_position_and_check(
+    depot_number: str,
+    token: Optional[str] = None,
+    token_path: Optional[str] = None,
+) -> Dict:
+    vid = get_vehicle_id_by_depot_number(depot_number, token=token, token_path=token_path)
     if vid is None:
         return {"ok": False, "depot_number": depot_number, "error": "vehicle_id_not_found"}
     try:
-        pos = fetch_online_by_vehicle_id(vid)
+        pos = fetch_online_by_vehicle_id(vid, token=token, token_path=token_path)
     except Exception as e:
         cached = _load_cached_position(vid)
         if cached:
@@ -401,11 +444,15 @@ def parse_depots_from_args(args: List[str]) -> Tuple[List[str], List[Dict]]:
 
     return valid, invalid
 
-def batch_get_positions(depot_numbers: List[str]) -> List[Dict]:
+def batch_get_positions(
+    depot_numbers: List[str],
+    token: Optional[str] = None,
+    token_path: Optional[str] = None,
+) -> List[Dict]:
     results: List[Dict] = []
     for dep in depot_numbers:
         try:
-            results.append(get_position_and_check(dep))
+            results.append(get_position_and_check(dep, token=token, token_path=token_path))
         except requests.HTTPError as e:
             results.append({
                 "ok": False,

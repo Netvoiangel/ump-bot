@@ -201,6 +201,8 @@ def render_parks_with_vehicles(
     debug: bool = False,
     park_filter: Optional[str] = None,
     color_map: Optional[Dict[str, Tuple[str, str]]] = None,
+    auth_token: Optional[str] = None,
+    auth_token_path: Optional[str] = None,
 ) -> List[str]:
     # Отладка color_map
     if debug:
@@ -220,7 +222,11 @@ def render_parks_with_vehicles(
     # ключ: park_name -> park dict
     park_by_name: Dict[str, Dict] = {p["name"]: p for p in parks}
 
-    results = batch_get_positions(depot_numbers)
+    results = batch_get_positions(
+        depot_numbers,
+        token=auth_token,
+        token_path=auth_token_path,
+    )
     if debug:
         try:
             print(json.dumps({"debug_results": results}, ensure_ascii=False)[:800])
