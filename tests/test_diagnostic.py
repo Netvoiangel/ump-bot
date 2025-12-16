@@ -26,11 +26,10 @@ SAMPLE_DATA = {
 
 def test_extract_red_issues():
     issues = diagnostic.extract_red_issues(SAMPLE_DATA)
-    assert len(issues) == 2
-    depots = {i["depot_number"] for i in issues}
-    assert depots == {6123, 6124}
-    assert any(i["indicator"] == "brd" for i in issues)
-    assert all("не работают" in i["legend"] or "Критично" in i["legend"] for i in issues)
+    assert len(issues) == 1  # summary-state игнорируется
+    assert issues[0]["depot_number"] == 6123
+    assert issues[0]["indicator"] == "brd"
+    assert "не работают" in issues[0]["legend"]
 
 
 def test_extract_red_issues_from_list():
@@ -40,12 +39,13 @@ def test_extract_red_issues_from_list():
             "Indicators": {
                 "x": {"Value": "red", "Legend": "bad"},
                 "y": {"Value": "green", "Legend": "ok"},
+                "summary-state": {"Value": "red", "Legend": "ignore"},
             },
         },
         {"DepotNumber": 101, "Indicators": {"z": {"Value": "grey", "Legend": "off"}}},
     ]
     issues = diagnostic.extract_red_issues(payload)
-    assert len(issues) == 1
+    assert len(issues) == 1  # summary-state не учитывается
     assert issues[0]["depot_number"] == 100
     assert issues[0]["indicator"] == "x"
 

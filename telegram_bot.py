@@ -596,6 +596,14 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
+    def _split_and_send(text: str, limit: int = 3500):
+        # Делит длинное сообщение на части, чтобы не превысить лимит Telegram
+        chunks = []
+        while text:
+            chunks.append(text[:limit])
+            text = text[limit:]
+        return chunks
+
     try:
         data = fetch_branch_diagnostics(
             branch_id,
@@ -603,7 +611,9 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             user_id=user_id_value,
         )
         issues = extract_red_issues(data)
-        await update.message.reply_text(format_issues_human(issues))
+        full_text = format_issues_human(issues)
+        for chunk in _split_and_send(full_text):
+            await update.message.reply_text(chunk)
     except FileNotFoundError:
         await update.message.reply_text("❌ Нет токена UMP. Введите /login.")
     except requests.HTTPError as e:
