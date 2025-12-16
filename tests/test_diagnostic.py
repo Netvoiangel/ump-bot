@@ -6,6 +6,7 @@ import diagnostic
 SAMPLE_DATA = {
     "0": {
         "DepotNumber": 6123,
+        "VehicleId": 1,
         "Indicators": {
             "summary-state": {"Value": "green", "Legend": "ok"},
             "brd": {
@@ -17,6 +18,7 @@ SAMPLE_DATA = {
     },
     "1": {
         "DepotNumber": 6124,
+        "VehicleId": 2,
         "Indicators": {
             "summary-state": {"Value": "red", "Legend": "Общее состояние: Критично"},
         },
@@ -51,13 +53,13 @@ def test_extract_red_issues_from_list():
 
 
 def test_format_issues_human():
-    text = diagnostic.format_issues_human(
-        [{"depot_number": 1234, "indicator": "brd", "legend": "Ошибка"}]
+    text = diagnostic.format_issues_compact(
+        [{"depot_number": 1234, "indicator": "brd", "legend": "Ошибка\nдлинно"}]
     )
-    assert "ТС 1234" in text
+    assert "1234 brd" in text
     assert "Ошибка" in text
 
-    ok_text = diagnostic.format_issues_human([])
+    ok_text = diagnostic.format_issues_compact([])
     assert "не обнаружено" in ok_text
 
 
@@ -105,4 +107,13 @@ def test_extract_user_id_from_token():
     sample = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjEyMywidXNlcm5hbWUiOiJ0ZXN0In0.sig"
     assert diagnostic.extract_user_id_from_token(sample) == 123
     assert diagnostic.extract_user_id_from_token("invalid") is None
+
+
+def test_is_indicator_suppressed():
+    data = {"Value": [{"Value": "grey", "Status": "Устройство выключено"}]}
+    assert diagnostic.is_indicator_suppressed(data) is True
+    data2 = {"Value": [{"Value": "green", "Status": "ok"}]}
+    assert diagnostic.is_indicator_suppressed(data2) is False
+    data3 = {"Value": [{"Value": "red", "Status": "bad"}]}
+    assert diagnostic.is_indicator_suppressed(data3) is False
 
