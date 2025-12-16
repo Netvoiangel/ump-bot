@@ -193,8 +193,9 @@ from login_token import login_with_credentials
 from diagnostic import (
     fetch_branch_diagnostics,
     extract_red_issues,
-    format_issues_human,
+    format_issues_compact,
     extract_user_id_from_token,
+    filter_issues_with_details,
 )
 from config import USER_TOKEN_DIR, USER_COOKIES_DIR, UMP_BRANCH_MAP, UMP_USER_ID
 
@@ -611,7 +612,12 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             user_id=user_id_value,
         )
         issues = extract_red_issues(data)
-        full_text = format_issues_human(issues)
+        issues = filter_issues_with_details(
+            issues,
+            token_path=str(token_path),
+            user_id=user_id_value,
+        )
+        full_text = format_issues_compact(issues)
         for chunk in _split_and_send(full_text):
             await update.message.reply_text(chunk)
     except FileNotFoundError:
