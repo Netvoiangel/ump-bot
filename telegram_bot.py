@@ -190,7 +190,8 @@ from render_map import (
     parse_sections_from_text,
 )
 from login_token import login_with_credentials
-from config import USER_TOKEN_DIR, USER_COOKIES_DIR
+from diagnostic import fetch_branch_diagnostics, extract_red_issues, format_issues_human
+from config import USER_TOKEN_DIR, USER_COOKIES_DIR, UMP_BRANCH_MAP
 
 load_dotenv()
 
@@ -261,6 +262,26 @@ def _token_file_valid(path: Path) -> bool:
 
 def _user_token_ready(user_id: int) -> bool:
     return _token_file_valid(_user_token_path(user_id))
+
+
+def _resolve_branch_id(branch_name: str) -> Optional[int]:
+    if not branch_name:
+        return None
+    name_norm = branch_name.strip().lower()
+    for k, v in (UMP_BRANCH_MAP or {}).items():
+        try:
+            if k.strip().lower() == name_norm:
+                return int(v)
+        except Exception:
+            continue
+    return None
+
+
+def _known_branches_text() -> str:
+    if not UMP_BRANCH_MAP:
+        return "Настройте переменную UMP_BRANCH_MAP, например: {\"Екатерининский\":1382}"
+    keys = ", ".join(UMP_BRANCH_MAP.keys())
+    return f"Доступные филиалы: {keys}"
 
 
 async def _prompt_login(update: Update) -> None:
@@ -342,6 +363,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/parks - Список парков\n"
         "/status [номер] - Статус ТС\n"
         "/login - Подключить UMP-аккаунт\n"
+        "/diag [филиал] - Ошибки оборудования по филиалу\n"
         "/help - Справка\n\n"
     )
     
@@ -366,6 +388,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/map - Показать карту парка с ТС\n"
         "/parks - Выбрать парк\n"
         "/status [номер] - Проверить статус ТС\n"
+        "/diag [филиал] - Ошибки оборудования\n"
         "/login - Авторизоваться в UMP\n"
         "/help - Эта справка\n\n"
         "Примеры:\n"
@@ -531,6 +554,50 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         sections=None,  # Нет категорий для явных номеров
         token_path=token_path,
     )
+
+
+async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /diag - проверка красных индикаторов оборудования по филиалу"""
+    if not check_access(update.effective_user.id):
+        return
+
+    user_id = update.effective_user.id
+    branch_name = " ".join(context.args).strip() if context.args else user_park_cache.get(user_id)
+
+    if not branch_name:
+        await update.message.reply_text(
+            "❌ Укажите филиал: /diag <название> или выберите парк через /parks."
+        )
+        return
+
+    branch_id = _resolve_branch_id(branch_name)
+    if branch_id is None:
+        await update.message.reply_text(
+            f"❌ Филиал '{branch_name}' не найден. {_known_branches_text()}"
+        )
+        return
+
+    token_path = await _ensure_user_authenticated(update)
+    if not token_path:
+        return
+
+    try:
+        data = fetch_branch_diagnostics(branch_id, token_path=str(token_path))
+        issues = extract_red_issues(data)
+        await update.message.reply_text(format_issues_human(issues))
+    except FileNotFoundError:
+        await update.message.reply_text("❌ Нет токена UMP. Введите /login.")
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        log_print(f"HTTP error in diag_command: {status}", "ERROR")
+        if status == 401:
+            await update.message.reply_text("❌ Сессия UMP истекла. Повторите /login.")
+        else:
+            detail = (e.response.text or "")[:300] if e.response is not None else str(e)
+            await update.message.reply_text(f"❌ HTTP ошибка {status}: {detail}")
+    except Exception as e:
+        log_print(f"Error in diag_command: {e}", "ERROR")
+        await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -723,6 +790,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("login", login_command))
+    application.add_handler(CommandHandler("diag", diag_command))
     application.add_handler(CommandHandler("parks", parks_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("map", map_command))

@@ -136,3 +136,4 @@ async def test_render_map_uses_token_path(monkeypatch, tmp_path):
     assert called["render_token_path"] == str(token_path)
     assert any("Нет ТС" in r for r in update.message.replies)
 
+
