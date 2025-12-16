@@ -1,5 +1,6 @@
 # config.py
 import os
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -18,6 +19,13 @@ def _ensure_dir(path: str):
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
+def _load_json_env(name: str, default: str = "{}"):
+    """Безопасно читает JSON из переменной окружения."""
+    try:
+        return json.loads(os.getenv(name, default))
+    except Exception:
+        return {}
+
 UMP_BASE_URL      = os.getenv("UMP_BASE_URL", "http://ump.piteravto.ru").rstrip("/")
 UMP_USER          = os.getenv("UMP_USER", "")
 UMP_PASS          = os.getenv("UMP_PASS", "")
@@ -31,6 +39,7 @@ LOG_LEVEL         = os.getenv("LOG_LEVEL", "INFO").upper()
 # --- Пользовательские данные авторизации ---
 USER_TOKEN_DIR   = os.getenv("USER_TOKEN_DIR", ".secrets/user_tokens")
 USER_COOKIES_DIR = os.getenv("USER_COOKIES_DIR", ".secrets/user_cookies")
+UMP_BRANCH_MAP   = _load_json_env("UMP_BRANCH_MAP", "{}")  # {"Екатерининский": 1382, ...}
 
 # --- Caching / Stability ---
 CACHE_DIR         = os.getenv("CACHE_DIR", ".secrets/cache")
