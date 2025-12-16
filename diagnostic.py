@@ -1,7 +1,7 @@
 import re
 import json
 import base64
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 import requests
 
@@ -116,15 +116,20 @@ def extract_user_id_from_token(token: str) -> Optional[int]:
         return None
 
 
-def extract_red_issues(data: Dict) -> List[Dict]:
+def _iter_items(data: Any):
+    if isinstance(data, dict):
+        return data.values()
+    if isinstance(data, list):
+        return data
+    return []
+
+
+def extract_red_issues(data: Any) -> List[Dict]:
     """
-    Извлекает индикаторы со значением 'red' из ответа UMP.
+    Извлекает индикаторы со значением 'red' из ответа UMP (dict или list).
     """
     issues: List[Dict] = []
-    if not isinstance(data, dict):
-        return issues
-
-    for item in data.values():
+    for item in _iter_items(data):
         depot = item.get("DepotNumber")
         indicators = item.get("Indicators") or {}
         if not isinstance(indicators, dict):
@@ -132,7 +137,8 @@ def extract_red_issues(data: Dict) -> List[Dict]:
         for name, meta in indicators.items():
             if not isinstance(meta, dict):
                 continue
-            if str(meta.get("Value")).lower() != "red":
+            val = str(meta.get("Value")).lower()
+            if val != "red":
                 continue
             legend = _clean_html(meta.get("Legend", ""))
             issues.append(

@@ -33,6 +33,23 @@ def test_extract_red_issues():
     assert all("не работают" in i["legend"] or "Критично" in i["legend"] for i in issues)
 
 
+def test_extract_red_issues_from_list():
+    payload = [
+        {
+            "DepotNumber": 100,
+            "Indicators": {
+                "x": {"Value": "red", "Legend": "bad"},
+                "y": {"Value": "green", "Legend": "ok"},
+            },
+        },
+        {"DepotNumber": 101, "Indicators": {"z": {"Value": "grey", "Legend": "off"}}},
+    ]
+    issues = diagnostic.extract_red_issues(payload)
+    assert len(issues) == 1
+    assert issues[0]["depot_number"] == 100
+    assert issues[0]["indicator"] == "x"
+
+
 def test_format_issues_human():
     text = diagnostic.format_issues_human(
         [{"depot_number": 1234, "indicator": "brd", "legend": "Ошибка"}]
