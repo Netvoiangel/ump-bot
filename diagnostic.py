@@ -1,10 +1,12 @@
 import re
+import json
+import base64
 from typing import Dict, List, Optional
 
 import requests
 
 from otbivka import _auth_headers
-from config import UMP_BASE_URL, REQUEST_TIMEOUT
+from config import UMP_BASE_URL, REQUEST_TIMEOUT, UMP_USER_ID
 
 DEFAULT_INDICATORS = [
     "summary-state",
@@ -57,6 +59,10 @@ def fetch_branch_diagnostics(
     """
     Получает статусы оборудования для филиала (Branchs) из UMP.
     """
+    uid = user_id or UMP_USER_ID
+    if not uid:
+        raise ValueError("Не задан user_id (нужен для запроса диагностики)")
+
     payload = {
         "RequestType": "GetVehicles",
         "Filters": {
@@ -66,8 +72,7 @@ def fetch_branch_diagnostics(
         },
         "Id": 3,
     }
-    if user_id is not None:
-        payload["Filters"]["user_id"] = user_id
+    payload["Filters"]["user_id"] = int(uid)
 
     headers = _auth_headers(token=token, token_path=token_path)
     headers.update(
@@ -88,6 +93,27 @@ def fetch_branch_diagnostics(
     )
     r.raise_for_status()
     return r.json() or {}
+
+
+def extract_user_id_from_token(token: str) -> Optional[int]:
+    """Пытается вытащить userId из JWT токена без проверки подписи."""
+    if not token or "." not in token:
+        return None
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload_b64 = parts[1]
+    # base64url padding
+    rem = len(payload_b64) % 4
+    if rem:
+        payload_b64 += "=" * (4 - rem)
+    try:
+        decoded = base64.urlsafe_b64decode(payload_b64.encode("utf-8"))
+        data = json.loads(decoded.decode("utf-8"))
+        uid = data.get("userId") or data.get("user_id") or data.get("user") or data.get("id")
+        return int(uid) if uid is not None else None
+    except Exception:
+        return None
 
 
 def extract_red_issues(data: Dict) -> List[Dict]:

@@ -30,6 +30,7 @@ def login_with_credentials(
     password: str,
     token_path: Optional[str] = None,
     cookies_path: Optional[str] = None,
+    return_user_id: bool = False,
 ) -> str:
     """
     Авторизуется в UMP с указанными учетными данными и возвращает токен.
@@ -62,7 +63,18 @@ def login_with_credentials(
     )
     response.raise_for_status()
 
+    data = {}
+    try:
+        data = response.json() or {}
+    except Exception:
+        data = {}
+
     token = _extract_token(response)
+    user_id = None
+    try:
+        user_id = data.get("user", {}).get("id")
+    except Exception:
+        user_id = None
 
     if token_path:
         path = Path(token_path)
@@ -76,6 +88,8 @@ def login_with_credentials(
         except Exception:
             pass
 
+    if return_user_id:
+        return token, user_id
     return token
 
 
@@ -84,6 +98,7 @@ def login_and_save(
     password: Optional[str] = None,
     token_path: Optional[str] = None,
     cookies_path: Optional[str] = None,
+    return_user_id: bool = False,
 ) -> str:
     """
     Обратная совместимость: пытается использовать переданные или окружение UMP_USER/UMP_PASS.
@@ -95,6 +110,7 @@ def login_and_save(
         pwd,
         token_path=token_path or UMP_TOKEN_FILE,
         cookies_path=cookies_path or UMP_COOKIES_FILE,
+        return_user_id=return_user_id,
     )
 
 
