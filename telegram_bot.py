@@ -48,6 +48,11 @@ async def render_map_with_numbers(
                 log_print(
                     f"ТС {dep}: ok={result.get('ok')}, park={result.get('park_name')}, in_park={result.get('in_park')}"
                 )
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 401:
+                    await update.message.reply_text("❌ Сессия UMP истекла. Введите /login для повторной авторизации.")
+                    return
+                log_print(f"HTTP error проверки ТС {dep}: {e}", "ERROR")
             except Exception as e:
                 log_print(f"Ошибка проверки ТС {dep}: {e}", "ERROR")
 
