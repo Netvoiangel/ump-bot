@@ -190,8 +190,13 @@ from render_map import (
     parse_sections_from_text,
 )
 from login_token import login_with_credentials
-from diagnostic import fetch_branch_diagnostics, extract_red_issues, format_issues_human
-from config import USER_TOKEN_DIR, USER_COOKIES_DIR, UMP_BRANCH_MAP
+from diagnostic import (
+    fetch_branch_diagnostics,
+    extract_red_issues,
+    format_issues_human,
+    extract_user_id_from_token,
+)
+from config import USER_TOKEN_DIR, USER_COOKIES_DIR, UMP_BRANCH_MAP, UMP_USER_ID
 
 load_dotenv()
 
@@ -576,13 +581,27 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"❌ Филиал '{branch_name}' не найден. {_known_branches_text()}"
         )
         return
-
     token_path = await _ensure_user_authenticated(update)
     if not token_path:
         return
+    user_token = ""
+    try:
+        user_token = Path(token_path).read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    user_id_value = extract_user_id_from_token(user_token) or (int(UMP_USER_ID) if UMP_USER_ID else None)
+    if not user_id_value:
+        await update.message.reply_text(
+            "❌ Не удалось определить user_id из токена. Добавьте UMP_USER_ID в .env."
+        )
+        return
 
     try:
-        data = fetch_branch_diagnostics(branch_id, token_path=str(token_path))
+        data = fetch_branch_diagnostics(
+            branch_id,
+            token_path=str(token_path),
+            user_id=user_id_value,
+        )
         issues = extract_red_issues(data)
         await update.message.reply_text(format_issues_human(issues))
     except FileNotFoundError:

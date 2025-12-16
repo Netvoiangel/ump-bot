@@ -1,5 +1,5 @@
 import types
-
+import pytest
 import diagnostic
 
 
@@ -67,10 +67,25 @@ def test_fetch_branch_diagnostics(monkeypatch):
     monkeypatch.setattr(diagnostic, "_session", lambda: DummySession())
     monkeypatch.setattr(diagnostic, "_auth_headers", lambda **kwargs: {"auth": "token"})
 
+    monkeypatch.setattr(diagnostic, "UMP_USER_ID", 10, raising=False)
+
     res = diagnostic.fetch_branch_diagnostics(branch_id=1382, token_path="x")
 
     assert res == {"ok": True}
     assert captured["json"]["Filters"]["Branchs"] == [1382]
     assert "Page-Id" in captured["headers"]
     assert "db-api-query" in captured["url"]
+
+
+def test_fetch_branch_requires_user_id(monkeypatch):
+    monkeypatch.setattr(diagnostic, "UMP_USER_ID", None, raising=False)
+    with pytest.raises(ValueError):
+        diagnostic.fetch_branch_diagnostics(branch_id=1, token_path="x")
+
+
+def test_extract_user_id_from_token():
+    # header.payload.signature (payload: {"userId":123})
+    sample = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjEyMywidXNlcm5hbWUiOiJ0ZXN0In0.sig"
+    assert diagnostic.extract_user_id_from_token(sample) == 123
+    assert diagnostic.extract_user_id_from_token("invalid") is None
 
