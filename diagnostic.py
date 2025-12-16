@@ -137,6 +137,9 @@ def extract_red_issues(data: Any) -> List[Dict]:
         for name, meta in indicators.items():
             if not isinstance(meta, dict):
                 continue
+            # summary-state — общий, его не выводим
+            if str(name).strip().lower() == "summary-state":
+                continue
             val = str(meta.get("Value")).lower()
             if val != "red":
                 continue
