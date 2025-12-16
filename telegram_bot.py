@@ -6,6 +6,7 @@ async def render_map_with_numbers(
     depot_numbers: List[str],
     selected_park: Optional[str],
     sections: Optional[Dict[str, List[str]]] = None,
+    token_path: Optional[str] = None,
 ) -> None:
     """Рендер карты для указанного списка ТС"""
     if not depot_numbers:
@@ -21,12 +22,8 @@ async def render_map_with_numbers(
 
     log_print(f"render_map_with_numbers: {len(depot_numbers)} ТС, парк={selected_park}")
 
-    # Проверяем токен
-    if not ensure_token_with_retry():
-        log_print("Не удалось получить токен UMP", "ERROR")
-        await update.message.reply_text(
-            "❌ Ошибка авторизации в UMP. Проверьте UMP_USER и UMP_PASS."
-        )
+    if not token_path:
+        await update.message.reply_text("❌ Нет токена UMP для запроса.")
         return
 
     await update.message.reply_text("🔄 Генерирую карту... Это может занять время.")
@@ -46,7 +43,7 @@ async def render_map_with_numbers(
         sample_results = []
         for dep in depot_numbers[:5]:
             try:
-                result = get_position_and_check(dep)
+                result = get_position_and_check(dep, token_path=token_path)
                 sample_results.append(result)
                 log_print(
                     f"ТС {dep}: ok={result.get('ok')}, park={result.get('park_name')}, in_park={result.get('in_park')}"
@@ -69,6 +66,7 @@ async def render_map_with_numbers(
             park_filter=selected_park,
             color_map=color_map,
             debug=True,
+            auth_token_path=token_path,
         )
 
         if not files:
@@ -103,15 +101,9 @@ async def render_map_with_numbers(
                 log_print(f"Ошибка отправки изображения {file_path}: {e}", "ERROR")
                 await update.message.reply_text(f"❌ Ошибка отправки изображения: {e}")
     except FileNotFoundError as e:
-        if "ump_token" in str(e).lower():
-            log_print(f"Token file not found: {e}", "ERROR")
-            await update.message.reply_text("🔄 Токен не найден, пытаюсь авторизоваться...")
-            if ensure_token_with_retry():
-                await update.message.reply_text("✅ Авторизация успешна. Повторите команду.")
-            else:
-                await update.message.reply_text("❌ Ошибка авторизации. Проверьте настройки.")
-        else:
-            await update.message.reply_text(f"❌ Файл не найден: {e}")
+        await update.message.reply_text(
+            "❌ Токен UMP не найден. Введите /login и авторизуйтесь заново."
+        )
     except Exception as e:
         log_print(f"Error in render_map_with_numbers: {e}", "ERROR")
         import traceback
@@ -175,9 +167,11 @@ import os
 import json
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Optional, Dict, List
 from pathlib import Path
 
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -195,8 +189,8 @@ from render_map import (
     parse_vehicles_file_with_sections,
     parse_sections_from_text,
 )
-from login_token import login_and_save
-from config import UMP_TOKEN_FILE, UMP_USER, UMP_PASS
+from login_token import login_with_credentials
+from config import USER_TOKEN_DIR, USER_COOKIES_DIR
 
 load_dotenv()
 
@@ -237,52 +231,91 @@ MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE_MB", "10")) * 1024 * 1024  # 10MB
 user_park_cache: Dict[int, str] = {}
 
 
-def ensure_token_exists() -> bool:
-    """Проверяет наличие токена и создает его при необходимости"""
-    log_print(f"ensure_token_exists: проверяю {UMP_TOKEN_FILE}")
-    token_path = Path(UMP_TOKEN_FILE)
-    
-    # Если токен существует, проверяем что он не пустой
-    if token_path.exists():
-        try:
-            with open(token_path, "r", encoding="utf-8") as f:
-                token = f.read().strip()
-                if token:
-                    log_print(f"Токен найден, длина: {len(token)}")
-                    return True
-                else:
-                    log_print("Токен пустой", "WARNING")
-        except Exception as e:
-            log_print(f"Ошибка чтения токена: {e}", "ERROR")
-            pass
-    else:
-        log_print(f"Файл токена не существует: {UMP_TOKEN_FILE}", "WARNING")
-    
-    # Токена нет или он пустой - пытаемся создать
-    if not UMP_USER or not UMP_PASS:
-        log_print("UMP_USER или UMP_PASS не установлены в .env. Автологин невозможен.", "ERROR")
-        return False
-    
+# Состояние авторизации пользователей
+@dataclass
+class UserSession:
+    username: str
+    password: Optional[str]
+    token: str
+    token_path: str
+    cookies_path: str
+
+
+user_sessions: Dict[int, UserSession] = {}
+# auth_flow_stage: user_id -> "await_login" | "await_password"
+auth_flow_stage: Dict[int, str] = {}
+auth_flow_data: Dict[int, Dict[str, str]] = {}
+
+
+def _reset_auth_flow(user_id: int) -> None:
+    auth_flow_stage.pop(user_id, None)
+    auth_flow_data.pop(user_id, None)
+
+
+def _token_file_valid(path: Path) -> bool:
     try:
-        log_print("Токен не найден, выполняю авторизацию...")
-        login_and_save()
-        log_print("Авторизация успешна")
-        return True
-    except Exception as e:
-        log_print(f"Ошибка авторизации: {e}", "ERROR")
-        import traceback
-        log_print(traceback.format_exc(), "ERROR")
+        return path.exists() and bool(path.read_text(encoding="utf-8").strip())
+    except Exception:
         return False
 
 
-def ensure_token_with_retry() -> bool:
-    """Проверяет токен и пытается обновить при необходимости"""
-    if ensure_token_exists():
-        return True
-    
-    # Если не удалось - пробуем еще раз
-    logger.warning("Повторная попытка авторизации...")
-    return ensure_token_exists()
+def _user_token_ready(user_id: int) -> bool:
+    return _token_file_valid(_user_token_path(user_id))
+
+
+async def _prompt_login(update: Update) -> None:
+    """Запускает диалог авторизации: сначала логин, потом пароль."""
+    user_id = update.effective_user.id
+    _reset_auth_flow(user_id)
+    auth_flow_stage[user_id] = "await_login"
+    auth_flow_data[user_id] = {}
+    await update.message.reply_text(
+        "🔐 Для работы бота подключите свой UMP-аккаунт.\n"
+        "Введите логин UMP:"
+    )
+
+
+def _save_user_session(user_id: int, username: str, password: Optional[str], token: str) -> None:
+    token_path = str(_user_token_path(user_id))
+    cookies_path = str(_user_cookies_path(user_id))
+    user_sessions[user_id] = UserSession(
+        username=username,
+        password=password,
+        token=token,
+        token_path=token_path,
+        cookies_path=cookies_path,
+    )
+
+
+async def _ensure_user_authenticated(update: Update) -> Optional[str]:
+    """Проверяет наличие токена пользователя. Если нет — запускает запрос логина."""
+    user_id = update.effective_user.id
+    token_path = _user_token_path(user_id)
+    if _token_file_valid(token_path):
+        return str(token_path)
+    await update.message.reply_text("ℹ️ Нужна авторизация в UMP.")
+    await _prompt_login(update)
+    return None
+
+
+def _user_token_path(user_id: int) -> Path:
+    return Path(USER_TOKEN_DIR) / f"{user_id}_token.txt"
+
+
+def _user_cookies_path(user_id: int) -> Path:
+    return Path(USER_COOKIES_DIR) / f"{user_id}_cookies.txt"
+
+
+def _load_saved_token(user_id: int) -> Optional[str]:
+    token_file = _user_token_path(user_id)
+    if token_file.exists():
+        try:
+            tok = token_file.read_text(encoding="utf-8").strip()
+            if tok:
+                return tok
+        except Exception:
+            return None
+    return None
 
 
 def check_access(user_id: int) -> bool:
@@ -308,6 +341,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/map - Карта парка с ТС\n"
         "/parks - Список парков\n"
         "/status [номер] - Статус ТС\n"
+        "/login - Подключить UMP-аккаунт\n"
         "/help - Справка\n\n"
     )
     
@@ -315,6 +349,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text += f"📍 Выбранный парк: {user_park_cache[user_id]}\n"
     
     await update.message.reply_text(text)
+
+    # Запрос авторизации, если пользователь ещё не вошёл
+    if not _user_token_ready(user_id):
+        await _prompt_login(update)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -328,12 +366,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/map - Показать карту парка с ТС\n"
         "/parks - Выбрать парк\n"
         "/status [номер] - Проверить статус ТС\n"
+        "/login - Авторизоваться в UMP\n"
         "/help - Эта справка\n\n"
         "Примеры:\n"
         "/status 6569\n"
         "/map 6177 6848\n"
     )
     await update.message.reply_text(text)
+
+
+async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Запуск ручной авторизации в UMP"""
+    if not check_access(update.effective_user.id):
+        return
+    await _prompt_login(update)
 
 
 async def parks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -397,26 +443,12 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     depot_number = context.args[0]
     
-    # Проверяем токен перед выполнением
-    if not ensure_token_with_retry():
-        await update.message.reply_text(
-            "❌ Ошибка авторизации в UMP. Проверьте UMP_USER и UMP_PASS в .env"
-        )
+    token_path = await _ensure_user_authenticated(update)
+    if not token_path:
         return
     
     try:
-        result = get_position_and_check(depot_number)
-        
-        # Если получили 401 - пробуем перелогиниться и повторить
-        if not result.get("ok") and result.get("error") == "http_error":
-            status = result.get("status")
-            if status == 401:
-                logger.warning("Получен 401, пытаюсь перелогиниться...")
-                if ensure_token_with_retry():
-                    result = get_position_and_check(depot_number)
-                else:
-                    await update.message.reply_text("❌ Ошибка авторизации. Попробуйте позже.")
-                    return
+        result = get_position_and_check(depot_number, token_path=token_path)
         
         if not result.get("ok"):
             error = result.get("error", "unknown")
@@ -440,30 +472,14 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(text)
     except FileNotFoundError as e:
         logger.error(f"Token file not found: {e}", exc_info=True)
-        if ensure_token_with_retry():
-            # Повторяем запрос после создания токена
-            try:
-                result = get_position_and_check(depot_number)
-                if result.get("ok"):
-                    in_park = "✅ В парке" if result.get("in_park") else "❌ Вне парка"
-                    park_name = result.get("park_name", "—")
-                    text = (
-                        f"🚌 ТС {result.get('depot_number')}\n\n"
-                        f"📍 Статус: {in_park}\n"
-                        f"🏢 Парк: {park_name}\n"
-                        f"🆔 ID: {result.get('vehicle_id')}\n"
-                        f"⏰ Время: {result.get('time', '—')}\n"
-                        f"🌐 Координаты:\n"
-                        f"   Lat: {result.get('lat', 0):.6f}\n"
-                        f"   Lon: {result.get('lon', 0):.6f}"
-                    )
-                    await update.message.reply_text(text)
-                else:
-                    await update.message.reply_text(f"❌ Ошибка: {result.get('error', 'unknown')}")
-            except Exception as e2:
-                await update.message.reply_text(f"❌ Ошибка: {str(e2)}")
+        await update.message.reply_text("❌ Нет токена UMP. Используйте /login для авторизации.")
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        logger.error(f"HTTP error in status_command: {status}", exc_info=True)
+        if status == 401:
+            await update.message.reply_text("❌ Сессия UMP истекла. Введите /login и авторизуйтесь снова.")
         else:
-            await update.message.reply_text("❌ Ошибка авторизации. Проверьте настройки.")
+            await update.message.reply_text(f"❌ HTTP ошибка {status}: {e}")
     except Exception as e:
         logger.error(f"Error in status_command: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
@@ -481,6 +497,10 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     selected_park = user_park_cache.get(user_id)
     log_print(f"map_command: user={user_id}, park={selected_park}, args={context.args}")
+
+    token_path = await _ensure_user_authenticated(update)
+    if not token_path:
+        return
 
     # ТОЛЬКО явно переданные аргументы
     if not context.args:
@@ -509,6 +529,7 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         depot_numbers=depot_numbers,
         selected_park=selected_park,
         sections=None,  # Нет категорий для явных номеров
+        token_path=token_path,
     )
 
 
@@ -526,10 +547,44 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     text = update.message.text.strip()
     log_print(f"Получен текст ({len(text)} символов): {text[:100]}...")
+
+    # Шаги авторизации (логин/пароль)
+    user_id = update.effective_user.id
+    stage = auth_flow_stage.get(user_id)
+    if stage == "await_login":
+        auth_flow_data[user_id] = {"username": text}
+        auth_flow_stage[user_id] = "await_password"
+        await update.message.reply_text("Введите пароль UMP:")
+        return
+    if stage == "await_password":
+        username = auth_flow_data.get(user_id, {}).get("username") or ""
+        password = text
+        token_path = _user_token_path(user_id)
+        cookies_path = _user_cookies_path(user_id)
+        try:
+            token = login_with_credentials(
+                username=username,
+                password=password,
+                token_path=str(token_path),
+                cookies_path=str(cookies_path),
+            )
+            _save_user_session(user_id, username=username, password=None, token=token)
+            _reset_auth_flow(user_id)
+            await update.message.reply_text("✅ UMP-аккаунт подключен. Теперь можно отправлять запросы.")
+        except Exception as e:
+            _reset_auth_flow(user_id)
+            auth_flow_stage[user_id] = "await_login"
+            auth_flow_data[user_id] = {}
+            await update.message.reply_text(f"❌ Не удалось авторизоваться: {e}\nВведите логин ещё раз:")
+        return
     
     # Пропускаем команды
     if text.startswith("/"):
         log_print("Пропущена команда")
+        return
+
+    token_path = await _ensure_user_authenticated(update)
+    if not token_path:
         return
     
     try:
@@ -554,6 +609,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             depot_numbers=depot_numbers,
             selected_park=user_park_cache.get(update.effective_user.id),
             sections=sections,
+            token_path=token_path,
         )
         
     except Exception as e:
@@ -572,6 +628,7 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     info_lines = []
     info_lines.append("🔍 ДИАГНОСТИКА БОТА\n")
+    user_id = update.effective_user.id
     
     # Проверка конфигурации
     info_lines.append(f"✅ BOT_TOKEN: {'установлен' if BOT_TOKEN else 'НЕ УСТАНОВЛЕН'}")
@@ -579,10 +636,10 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     info_lines.append(f"📁 OUT_DIR: {OUT_DIR} ({'существует' if os.path.exists(OUT_DIR) else 'НЕ СУЩЕСТВУЕТ'})")
     info_lines.append(f"📁 CACHE_DIR: {CACHE_DIR}")
     
-    # Проверка токена
-    token_path = Path(UMP_TOKEN_FILE)
-    info_lines.append(f"\n🔑 ТОКЕН UMP:")
-    info_lines.append(f"   Путь: {UMP_TOKEN_FILE}")
+    # Проверка токена пользователя
+    token_path = _user_token_path(user_id)
+    info_lines.append(f"\n🔑 ТОКЕН UMP (user={user_id}):")
+    info_lines.append(f"   Путь: {token_path}")
     info_lines.append(f"   Существует: {'ДА' if token_path.exists() else 'НЕТ'}")
     if token_path.exists():
         try:
@@ -591,8 +648,8 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 info_lines.append(f"   Длина: {len(token)} символов")
         except Exception as e:
             info_lines.append(f"   Ошибка чтения: {e}")
-    info_lines.append(f"   UMP_USER: {'установлен' if UMP_USER else 'НЕ УСТАНОВЛЕН'}")
-    info_lines.append(f"   UMP_PASS: {'установлен' if UMP_PASS else 'НЕ УСТАНОВЛЕН'}")
+    else:
+        info_lines.append("   Требуется авторизация через /login")
     
     # Проверка парков
     try:
@@ -617,21 +674,20 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             info_lines.append(f"\n🚌 VEHICLES.TXT: ошибка парсинга - {e}")
     
     # Проверка выбранного парка
-    user_id = update.effective_user.id
     selected_park = user_park_cache.get(user_id)
     info_lines.append(f"\n📍 ВЫБРАННЫЙ ПАРК: {selected_park or 'не выбран (все)'}")
     
     # Тест одного ТС
     info_lines.append(f"\n🧪 ТЕСТ ТС 6400:")
     try:
-        if ensure_token_with_retry():
-            result = get_position_and_check("6400")
+        if _token_file_valid(token_path):
+            result = get_position_and_check("6400", token_path=str(token_path))
             if result.get("ok"):
                 info_lines.append(f"   ✅ OK: в парке={result.get('in_park')}, парк={result.get('park_name')}")
             else:
                 info_lines.append(f"   ❌ Ошибка: {result.get('error')}")
         else:
-            info_lines.append(f"   ❌ Не удалось получить токен")
+            info_lines.append(f"   ❌ Нет токена. Авторизуйтесь через /login.")
     except Exception as e:
         info_lines.append(f"   ❌ Исключение: {e}")
     
@@ -654,16 +710,8 @@ def main() -> None:
     log_print(f"VEHICLES_FILE: {VEHICLES_FILE} (существует: {os.path.exists(VEHICLES_FILE)})")
     log_print(f"OUT_DIR: {OUT_DIR}")
     log_print(f"CACHE_DIR: {CACHE_DIR}")
-    log_print(f"UMP_TOKEN_FILE: {UMP_TOKEN_FILE}")
-    log_print(f"UMP_USER: {'установлен' if UMP_USER else 'НЕ УСТАНОВЛЕН'}")
-    log_print(f"UMP_PASS: {'установлен' if UMP_PASS else 'НЕ УСТАНОВЛЕН'}")
-    
-    # Проверяем и создаем токен UMP при старте
-    log_print("Проверяю токен UMP...")
-    if not ensure_token_exists():
-        log_print("Токен UMP не создан. Бот будет пытаться создать его при первом запросе.", "WARNING")
-    else:
-        log_print("Токен UMP готов")
+    log_print(f"USER_TOKEN_DIR: {USER_TOKEN_DIR}")
+    log_print("Авторизация в UMP выполняется каждым пользователем вручную через /login.")
     
     # Создаем Application
     log_print("Создаю Application...")
@@ -674,6 +722,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("test", test_command))
+    application.add_handler(CommandHandler("login", login_command))
     application.add_handler(CommandHandler("parks", parks_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("map", map_command))
