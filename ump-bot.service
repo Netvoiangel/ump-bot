@@ -7,7 +7,7 @@ Type=simple
 User=www-data
 WorkingDirectory=/opt/ump_bot
 Environment="PATH=/opt/ump_bot/venv/bin"
-ExecStart=/opt/ump_bot/venv/bin/python /opt/ump_bot/telegram_bot.py
+ExecStart=/opt/ump_bot/venv/bin/python /opt/ump_bot/bot.py
 Restart=always
 RestartSec=10
 

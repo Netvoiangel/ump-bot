@@ -4,7 +4,7 @@ from typing import List, Tuple, Dict, Optional
 import requests
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
-from otbivka import load_parks, batch_get_positions
+from .otbivka import load_parks, batch_get_positions
 
 
 def _normalize_token(tok: str) -> str:
@@ -13,7 +13,7 @@ def _normalize_token(tok: str) -> str:
 
 def _parse_sections_from_lines(lines: List[str]) -> Dict[str, List[str]]:
     """Парсит секции из списка строк"""
-    from otbivka import is_valid_depot_number
+    from .otbivka import is_valid_depot_number
 
     result: Dict[str, List[str]] = {}
     current_category = "default"

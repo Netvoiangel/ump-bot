@@ -28,7 +28,7 @@ nano .env
 python login_token.py
 
 # Запуск бота
-python telegram_bot.py
+python bot.py
 ```
 
 ### На сервере
@@ -50,7 +50,7 @@ sudo systemctl start ump-bot
 - `/start` - Начать работу
 - `/help` - Справка
 - `/parks` - Выбрать парк
-- `/map` - Карта с ТС из vehicles.txt
+- `/map` - Карта с ТС из файла `VEHICLES_FILE` (по умолчанию `src/ump_bot/data/vehicles.sample.txt`)
 - `/map 6177 6848` - Карта для конкретных ТС
 - `/status 6569` - Статус ТС
 
@@ -58,18 +58,28 @@ sudo systemctl start ump-bot
 
 ```
 ump_bot/
-├── telegram_bot.py      # Telegram бот
-├── otbivka.py           # Логика работы с UMP
-├── render_map.py        # Рендеринг карт
-├── login_token.py       # Авторизация в UMP
-├── config.py            # Конфигурация
-├── parks.json           # Геозоны парков
-├── vehicles.txt         # Список ТС с категориями
-├── requirements.txt     # Зависимости
-├── Dockerfile           # Docker образ
-├── docker-compose.yml   # Docker Compose
-├── ump-bot.service      # systemd service
-└── DEPLOY.md            # Инструкция по деплою
+├── bot.py                   # Точка входа
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+├── src/
+│   └── ump_bot/
+│       ├── __init__.py
+│       ├── config/         # Конфигурация и env-дефолты
+│       │   └── __init__.py
+│       ├── data/           # Статичные файлы
+│       │   ├── parks.json
+│       │   └── vehicles.sample.txt
+│       ├── colors.py
+│       ├── infra/
+│       │   ├── diagnostic.py
+│       │   ├── login_token.py
+│       │   ├── otbivka.py
+│       │   └── render_map.py
+│       ├── parsing.py
+│       └── telegram_bot.py
+├── tests/
+└── DEPLOY.md
 ```
 
 ## Оптимизация для слабого сервера
@@ -88,7 +98,7 @@ ump_bot/
 pytest
 
 # Проверка синтаксиса
-python -m py_compile telegram_bot.py render_map.py
+python -m py_compile src/ump_bot/telegram_bot.py src/ump_bot/infra/render_map.py
 ```
 
 После деплоя на сервер используй [VERIFY_DEPLOYMENT.md](VERIFY_DEPLOYMENT.md) для проверки корректности работы.

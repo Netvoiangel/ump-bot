@@ -1,6 +1,7 @@
 import types
 import pytest
-import diagnostic
+
+from src.ump_bot import diagnostic
 
 
 SAMPLE_DATA = {
