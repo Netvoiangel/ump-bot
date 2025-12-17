@@ -51,7 +51,7 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             return
 
-        raw = fetch_branch_diagnostics(branch_id=branch_id, token_path=token_path)
+        raw = fetch_branch_diagnostics(branch_id=branch_id, token_path=token_path, user_id=inferred_id)
         issues = filter_issues_with_details(raw)
         red = extract_red_issues(issues)
         text = format_issues_compact(red)
