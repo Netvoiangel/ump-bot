@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Any
 
 import requests
 
-from otbivka import _auth_headers
-from config import UMP_BASE_URL, REQUEST_TIMEOUT, UMP_USER_ID
+from .otbivka import _auth_headers
+from .config import UMP_BASE_URL, REQUEST_TIMEOUT, UMP_USER_ID
 
 DEFAULT_INDICATORS = [
     "summary-state",

@@ -22,5 +22,5 @@ RUN mkdir -p .secrets/cache out .tile_cache
 ENV PYTHONUNBUFFERED=1
 
 # Запуск бота
-CMD ["python", "telegram_bot.py"]
+CMD ["python", "bot.py"]
 

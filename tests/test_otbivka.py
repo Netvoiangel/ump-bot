@@ -2,7 +2,7 @@
 
 import pytest
 
-import otbivka
+from src.ump_bot import otbivka
 
 
 @pytest.fixture(autouse=True)
@@ -37,8 +37,8 @@ from pathlib import Path
 
 import pytest
 
-import otbivka
-import config
+from src.ump_bot import otbivka
+from src.ump_bot import config
 
 
 @pytest.fixture(autouse=True)

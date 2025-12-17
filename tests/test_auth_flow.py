@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-import telegram_bot
+from src.ump_bot import telegram_bot
 
 
 class DummyMessage:

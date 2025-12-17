@@ -10,8 +10,8 @@ services:
       - ./.secrets:/app/.secrets:Z
       - ./out:/app/out:Z
       - ./.tile_cache:/app/.tile_cache:Z
-      - ./parks.json:/app/parks.json:Z
-      - ./vehicles.txt:/app/vehicles.txt:Z
+      - ./src/ump_bot/data/parks.json:/app/src/ump_bot/data/parks.json:Z
+      - ./src/ump_bot/data/vehicles.sample.txt:/app/src/ump_bot/data/vehicles.sample.txt:Z
       - ./.env:/app/.env:Z
     environment:
       - PYTHONUNBUFFERED=1

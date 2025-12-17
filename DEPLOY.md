@@ -22,8 +22,8 @@ UMP_PASS=ваш_пароль
 # Токены и файлы
 UMP_TOKEN_FILE=.secrets/ump_token.txt
 UMP_COOKIES=.secrets/ump_cookies.txt
-PARKS_FILE=parks.json
-VEHICLES_FILE=vehicles.txt
+PARKS_FILE=src/ump_bot/data/parks.json
+VEHICLES_FILE=src/ump_bot/data/vehicles.sample.txt
 
 # Telegram Bot
 TELEGRAM_BOT_TOKEN=
@@ -149,7 +149,7 @@ python login_token.py
 - `/start` - Начать работу
 - `/help` - Справка
 - `/parks` - Выбрать парк (кнопки)
-- `/map` - Показать карту с ТС из vehicles.txt
+- `/map` - Показать карту с ТС из файла `VEHICLES_FILE`
 - `/map 6177 6848` - Карта для конкретных ТС
 - `/status 6569` - Статус конкретного ТС
 
@@ -206,7 +206,7 @@ sudo systemctl status ump-bot
 sudo journalctl -u ump-bot -f --lines=100
 
 # Использование ресурсов
-top -p $(pgrep -f telegram_bot.py)
+top -p $(pgrep -f bot.py)
 ```
 
 ## Обновление
@@ -252,7 +252,7 @@ python login_token.py
 
 ### Медленная работа
 
-1. Уменьшите количество ТС в `vehicles.txt`
+1. Уменьшите количество ТС в `VEHICLES_FILE` (по умолчанию `src/ump_bot/data/vehicles.sample.txt`)
 2. Используйте фильтр по парку: `/parks` → выберите парк
 3. Снизьте `MAP_ZOOM` до 16
 
@@ -267,6 +267,6 @@ python login_token.py
 При возникновении проблем проверьте логи и убедитесь, что:
 - Все переменные в `.env` заполнены
 - Токен UMP актуален (запустите `login_token.py`)
-- Файлы `parks.json` и `vehicles.txt` существуют
+- Файлы `PARKS_FILE` и `VEHICLES_FILE` существуют (дефолт: `src/ump_bot/data/parks.json`, `src/ump_bot/data/vehicles.sample.txt`)
 - Достаточно места на диске для кэша
 

@@ -23,18 +23,18 @@ git status
 git diff HEAD
 ```
 
-**Ожидаемый результат:** Последний коммит должен содержать изменения в `telegram_bot.py` и `render_map.py` с добавлением логирования для `color_map`.
+**Ожидаемый результат:** Последний коммит должен содержать изменения в `src/ump_bot/telegram_bot.py` и `src/ump_bot/render_map.py` с добавлением логирования для `color_map`.
 
 ## Шаг 2: Проверка структуры файлов
 
 ```bash
 # Проверить наличие ключевых файлов
-ls -la telegram_bot.py render_map.py
+ls -la src/ump_bot/telegram_bot.py src/ump_bot/render_map.py
 
 # Проверить, что функции логирования присутствуют
-grep -n "color_map создан" telegram_bot.py
-grep -n "build_color_map_from_sections" telegram_bot.py
-grep -n "\[DEBUG\] color_map передан" render_map.py
+grep -n "color_map создан" src/ump_bot/telegram_bot.py
+grep -n "build_color_map_from_sections" src/ump_bot/telegram_bot.py
+grep -n "\[DEBUG\] color_map передан" src/ump_bot/render_map.py
 ```
 
 **Ожидаемый результат:** Все три команды должны найти соответствующие строки в файлах.
@@ -193,7 +193,7 @@ color_map создан: 6 ТС с цветами
 1. **Проверить версию кода:**
    ```bash
    git log -1 --oneline
-   git diff HEAD~1 telegram_bot.py | head -50
+   git diff HEAD~1 src/ump_bot/telegram_bot.py | head -50
    ```
 
 2. **Перезапустить бота:**
@@ -226,7 +226,7 @@ echo "=== Версия кода ===" && \
 git log -1 --oneline && \
 echo "" && \
 echo "=== Проверка функций ===" && \
-grep -c "color_map создан" telegram_bot.py && \
+grep -c "color_map создан" src/ump_bot/telegram_bot.py && \
 grep -c "\[DEBUG\] color_map передан" render_map.py && \
 echo "" && \
 echo "=== Статус бота ===" && \

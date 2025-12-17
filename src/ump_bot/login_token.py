@@ -6,7 +6,14 @@ from typing import Optional
 import requests
 from http.cookiejar import MozillaCookieJar
 
-from config import UMP_BASE_URL, UMP_USER, UMP_PASS, UMP_COOKIES_FILE, UMP_TOKEN_FILE, REQUEST_TIMEOUT
+from .config import (
+    UMP_BASE_URL,
+    UMP_USER,
+    UMP_PASS,
+    UMP_COOKIES_FILE,
+    UMP_TOKEN_FILE,
+    REQUEST_TIMEOUT,
+)
 
 
 def _extract_token(response: requests.Response) -> str:

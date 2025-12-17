@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
+
 
 def _ensure_parent_dir(path: str):
     """Создает родительский каталог для файла, если его еще нет."""
@@ -26,15 +29,16 @@ def _load_json_env(name: str, default: str = "{}"):
     except Exception:
         return {}
 
-UMP_BASE_URL      = os.getenv("UMP_BASE_URL", "http://ump.piteravto.ru").rstrip("/")
-UMP_USER          = os.getenv("UMP_USER", "")
-UMP_PASS          = os.getenv("UMP_PASS", "")
-UMP_TOKEN_FILE    = os.getenv("UMP_TOKEN_FILE", ".secrets/ump_token.txt")
-UMP_COOKIES_FILE  = os.getenv("UMP_COOKIES", ".secrets/ump_cookies.txt")
-PARKS_FILE        = os.getenv("PARKS_FILE", "parks.json")
-UMP_TZ_OFFSET     = os.getenv("UMP_TIMEZONE_OFFSET", "180")
-REQUEST_TIMEOUT   = float(os.getenv("REQUEST_TIMEOUT", "20"))
-LOG_LEVEL         = os.getenv("LOG_LEVEL", "INFO").upper()
+UMP_BASE_URL = os.getenv("UMP_BASE_URL", "http://ump.piteravto.ru").rstrip("/")
+UMP_USER = os.getenv("UMP_USER", "")
+UMP_PASS = os.getenv("UMP_PASS", "")
+UMP_TOKEN_FILE = os.getenv("UMP_TOKEN_FILE", ".secrets/ump_token.txt")
+UMP_COOKIES_FILE = os.getenv("UMP_COOKIES", ".secrets/ump_cookies.txt")
+PARKS_FILE = os.getenv("PARKS_FILE", str(DATA_DIR / "parks.json"))
+VEHICLES_FILE = os.getenv("VEHICLES_FILE", str(DATA_DIR / "vehicles.sample.txt"))
+UMP_TZ_OFFSET = os.getenv("UMP_TIMEZONE_OFFSET", "180")
+REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "20"))
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 # --- Пользовательские данные авторизации ---
 USER_TOKEN_DIR   = os.getenv("USER_TOKEN_DIR", ".secrets/user_tokens")
@@ -56,3 +60,4 @@ _ensure_dir(USER_TOKEN_DIR)
 _ensure_dir(USER_COOKIES_DIR)
 _ensure_dir(USER_CREDS_DIR)
 _ensure_dir(USER_META_DIR)
+_ensure_dir(DATA_DIR)

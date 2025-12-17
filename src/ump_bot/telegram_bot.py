@@ -199,21 +199,28 @@ from telegram.ext import (
 )
 from dotenv import load_dotenv
 
-from otbivka import load_parks, batch_get_positions, get_position_and_check
-from render_map import (
+from .otbivka import load_parks, batch_get_positions, get_position_and_check
+from .render_map import (
     render_parks_with_vehicles,
     parse_vehicles_file_with_sections,
     parse_sections_from_text,
 )
-from login_token import login_with_credentials
-from diagnostic import (
+from .login_token import login_with_credentials
+from .diagnostic import (
     fetch_branch_diagnostics,
     extract_red_issues,
     format_issues_compact,
     extract_user_id_from_token,
     filter_issues_with_details,
 )
-from config import USER_TOKEN_DIR, USER_COOKIES_DIR, USER_CREDS_DIR, UMP_BRANCH_MAP, UMP_USER_ID
+from .config import (
+    USER_TOKEN_DIR,
+    USER_COOKIES_DIR,
+    USER_CREDS_DIR,
+    UMP_BRANCH_MAP,
+    UMP_USER_ID,
+    VEHICLES_FILE as DEFAULT_VEHICLES_FILE,
+)
 
 load_dotenv()
 
@@ -245,7 +252,7 @@ def log_print(msg: str, level: str = "INFO"):
 # Конфигурация
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 ALLOWED_USER_IDS = os.getenv("TELEGRAM_ALLOWED_USERS", "").split(",") if os.getenv("TELEGRAM_ALLOWED_USERS") else []
-VEHICLES_FILE = os.getenv("VEHICLES_FILE", "vehicles.txt")
+VEHICLES_FILE = os.getenv("VEHICLES_FILE", DEFAULT_VEHICLES_FILE)
 OUT_DIR = os.getenv("MAP_OUT_DIR", "out")
 CACHE_DIR = os.getenv("MAP_CACHE_DIR", ".tile_cache")
 MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE_MB", "10")) * 1024 * 1024  # 10MB по умолчанию
