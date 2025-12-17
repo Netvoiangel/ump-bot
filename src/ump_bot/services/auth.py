@@ -113,6 +113,12 @@ def _save_user_session(user_id: int, username: str, password: Optional[str], tok
     )
     if password:
         _save_user_creds(user_id, username, password)
+    # Пишем токен сразу в файл, чтобы следующие команды его видели
+    try:
+        Path(token_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(token_path).write_text(token, encoding="utf-8")
+    except Exception as e:
+        log_print(logger, f"Не удалось записать токен в {token_path}: {e}", "ERROR")
 
 
 def _try_autologin(user_id: int) -> Optional[str]:
