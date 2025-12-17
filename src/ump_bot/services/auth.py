@@ -155,6 +155,15 @@ async def ensure_user_authenticated(update: Update) -> Optional[str]:
     token_path = _user_token_path(user_id)
     if _token_file_valid(token_path):
         return str(token_path)
+    # если токен есть в памяти — пытаемся сохранить и использовать
+    session = user_sessions.get(user_id)
+    if session and session.token:
+        try:
+            Path(session.token_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(session.token_path).write_text(session.token, encoding="utf-8")
+            return session.token_path
+        except Exception:
+            pass
     # пробуем автологин по сохранённым учетным данным
     autologin_path = _try_autologin(user_id)
     if autologin_path:
