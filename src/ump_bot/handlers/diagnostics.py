@@ -15,6 +15,7 @@ from ..services.diagnostic import (
     _known_branches_text,
 )
 from ..services.settings import ALLOWED_USER_IDS
+from ..config import UMP_USER_ID
 from ..utils.logging import log_print
 
 logger = logging.getLogger("ump_bot")
@@ -51,8 +52,13 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             return
 
-        raw = fetch_branch_diagnostics(branch_id=branch_id, token_path=token_path, user_id=inferred_id)
-        issues = filter_issues_with_details(raw)
+        uid = inferred_id or (int(UMP_USER_ID) if UMP_USER_ID else None)
+        if not uid:
+            await update.message.reply_text("❌ Не задан user_id (env UMP_USER_ID) и не удалось извлечь из токена.")
+            return
+
+        raw = fetch_branch_diagnostics(branch_id=branch_id, token_path=token_path, user_id=uid)
+        issues = filter_issues_with_details(raw, token_path=token_path, user_id=uid)
         red = extract_red_issues(issues)
         text = format_issues_compact(red)
         await update.message.reply_text(text)

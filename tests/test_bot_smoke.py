@@ -91,8 +91,9 @@ def test_diag_smoke(monkeypatch):
     monkeypatch.setattr(auth, "check_access", lambda *_: True)
     monkeypatch.setattr(auth, "_load_saved_token", lambda *_: None)
     monkeypatch.setattr(diag_handlers, "_resolve_branch_id", lambda name: 1)
+    monkeypatch.setattr(diag_handlers, "UMP_USER_ID", 99, raising=False)
     monkeypatch.setattr(diag_handlers, "fetch_branch_diagnostics", lambda **kwargs: {})
-    monkeypatch.setattr(diag_handlers, "filter_issues_with_details", lambda raw: [])
+    monkeypatch.setattr(diag_handlers, "filter_issues_with_details", lambda raw, token_path=None, user_id=None: [])
     monkeypatch.setattr(diag_handlers, "extract_red_issues", lambda issues: [])
     monkeypatch.setattr(diag_handlers, "format_issues_compact", lambda issues: "нет проблем")
 
