@@ -41,6 +41,7 @@ USER_TOKEN_DIR   = os.getenv("USER_TOKEN_DIR", ".secrets/user_tokens")
 USER_COOKIES_DIR = os.getenv("USER_COOKIES_DIR", ".secrets/user_cookies")
 UMP_BRANCH_MAP   = _load_json_env("UMP_BRANCH_MAP", "{}")  # {"Екатерининский": 1382, ...}
 UMP_USER_ID      = os.getenv("UMP_USER_ID")  # числовой ID пользователя UMP (для diag)
+USER_CREDS_DIR   = os.getenv("USER_CREDS_DIR", ".secrets/user_creds")
 USER_META_DIR    = os.getenv("USER_META_DIR", ".secrets/user_meta")
 
 # --- Caching / Stability ---
@@ -53,4 +54,5 @@ _ensure_parent_dir(UMP_COOKIES_FILE)
 _ensure_parent_dir(CACHE_DIR)
 _ensure_dir(USER_TOKEN_DIR)
 _ensure_dir(USER_COOKIES_DIR)
+_ensure_dir(USER_CREDS_DIR)
 _ensure_dir(USER_META_DIR)
