@@ -71,11 +71,12 @@ ump_bot/
 │       │   ├── parks.json
 │       │   └── vehicles.sample.txt
 │       ├── colors.py
-│       ├── diagnostic.py
-│       ├── login_token.py
-│       ├── otbivka.py
+│       ├── infra/
+│       │   ├── diagnostic.py
+│       │   ├── login_token.py
+│       │   ├── otbivka.py
+│       │   └── render_map.py
 │       ├── parsing.py
-│       ├── render_map.py
 │       └── telegram_bot.py
 ├── tests/
 └── DEPLOY.md
@@ -97,7 +98,7 @@ ump_bot/
 pytest
 
 # Проверка синтаксиса
-python -m py_compile src/ump_bot/telegram_bot.py src/ump_bot/render_map.py
+python -m py_compile src/ump_bot/telegram_bot.py src/ump_bot/infra/render_map.py
 ```
 
 После деплоя на сервер используй [VERIFY_DEPLOYMENT.md](VERIFY_DEPLOYMENT.md) для проверки корректности работы.

@@ -5,6 +5,9 @@ from pathlib import Path
 import pytest
 
 from src.ump_bot import telegram_bot
+from src.ump_bot.services import auth
+from src.ump_bot.handlers import map as map_handlers
+from src.ump_bot.services import map as map_service
 
 
 class DummyMessage:
@@ -24,17 +27,17 @@ class DummyUpdate:
 
 @pytest.fixture(autouse=True)
 def reset_state(monkeypatch, tmp_path):
-    telegram_bot.auth_flow_stage.clear()
-    telegram_bot.auth_flow_data.clear()
-    telegram_bot.user_sessions.clear()
+    auth.auth_flow_stage.clear()
+    auth.auth_flow_data.clear()
+    auth.user_sessions.clear()
 
     token_dir = tmp_path / "tokens"
     cookies_dir = tmp_path / "cookies"
     token_dir.mkdir()
     cookies_dir.mkdir()
 
-    monkeypatch.setattr(telegram_bot, "USER_TOKEN_DIR", str(token_dir), raising=False)
-    monkeypatch.setattr(telegram_bot, "USER_COOKIES_DIR", str(cookies_dir), raising=False)
+    monkeypatch.setattr(auth, "USER_TOKEN_DIR", str(token_dir), raising=False)
+    monkeypatch.setattr(auth, "USER_COOKIES_DIR", str(cookies_dir), raising=False)
 
     yield
 
@@ -45,9 +48,9 @@ def test_token_file_valid(tmp_path):
     empty_file = tmp_path / "empty.txt"
     empty_file.write_text("", encoding="utf-8")
 
-    assert telegram_bot._token_file_valid(ok_file) is True
-    assert telegram_bot._token_file_valid(empty_file) is False
-    assert telegram_bot._token_file_valid(tmp_path / "missing.txt") is False
+    assert auth._token_file_valid(ok_file) is True
+    assert auth._token_file_valid(empty_file) is False
+    assert auth._token_file_valid(tmp_path / "missing.txt") is False
 
 
 @pytest.mark.asyncio
@@ -61,19 +64,19 @@ async def test_ensure_user_authenticated_without_token(monkeypatch):
         prompted.set()
         telegram_bot.auth_flow_stage[u.effective_user.id] = "await_login"
 
-    monkeypatch.setattr(telegram_bot, "_prompt_login", fake_prompt)
+    monkeypatch.setattr(auth, "_prompt_login", fake_prompt)
 
-    token_path = await telegram_bot._ensure_user_authenticated(update)
+    token_path = await auth.ensure_user_authenticated(update)
 
     assert token_path is None
-    assert telegram_bot.auth_flow_stage.get(1) == "await_login"
+    assert auth.auth_flow_stage.get(1) == "await_login"
     assert prompted.is_set()
 
 
 @pytest.mark.asyncio
 async def test_login_flow_saves_token(monkeypatch, tmp_path):
     user_id = 42
-    token_dir = Path(telegram_bot.USER_TOKEN_DIR)
+    token_dir = Path(auth.USER_TOKEN_DIR)
     token_path = token_dir / f"{user_id}_token.txt"
 
     async def fake_login_with_credentials(username, password, token_path=None, cookies_path=None):
@@ -83,19 +86,19 @@ async def test_login_flow_saves_token(monkeypatch, tmp_path):
     monkeypatch.setattr(telegram_bot, "login_with_credentials", fake_login_with_credentials)
 
     # шаг логина
-    telegram_bot.auth_flow_stage[user_id] = "await_login"
+    auth.auth_flow_stage[user_id] = "await_login"
     update_login = DummyUpdate(user_id=user_id, text="user1")
-    await telegram_bot.text_handler(update_login, SimpleNamespace(args=[]))
-    assert telegram_bot.auth_flow_stage[user_id] == "await_password"
+    await map_handlers.text_handler(update_login, SimpleNamespace(args=[]))
+    assert auth.auth_flow_stage[user_id] == "await_password"
     assert "Введите пароль" in update_login.message.replies[-1]
 
     # шаг пароля
     update_pass = DummyUpdate(user_id=user_id, text="pass1")
-    await telegram_bot.text_handler(update_pass, SimpleNamespace(args=[]))
+    await map_handlers.text_handler(update_pass, SimpleNamespace(args=[]))
 
     assert token_path.exists()
     assert token_path.read_text(encoding="utf-8") == "tok123"
-    assert telegram_bot.auth_flow_stage.get(user_id) is None
+    assert auth.auth_flow_stage.get(user_id) is None
     assert "UMP-аккаунт подключен" in update_pass.message.replies[-1]
 
 
@@ -124,7 +127,8 @@ async def test_render_map_uses_token_path(monkeypatch, tmp_path):
     token_path.write_text("tok", encoding="utf-8")
 
     update = DummyUpdate(user_id=user_id, text="")
-    await telegram_bot.render_map_with_numbers(
+    await map_service.render_map_with_numbers(
+        logger=telegram_bot.logger,
         update=update,
         depot_numbers=["1234"],
         selected_park=None,

@@ -7,9 +7,8 @@ services:
     restart: unless-stopped
     volumes:
       # Добавляем :Z для корректной работы SELinux при Podman bind-mount
-      - ./.secrets:/app/.secrets:Z
+      - ./var:/app/var:Z
       - ./out:/app/out:Z
-      - ./.tile_cache:/app/.tile_cache:Z
       - ./src/ump_bot/data/parks.json:/app/src/ump_bot/data/parks.json:Z
       - ./src/ump_bot/data/vehicles.sample.txt:/app/src/ump_bot/data/vehicles.sample.txt:Z
       - ./.env:/app/.env:Z

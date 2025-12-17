@@ -1,57 +1,44 @@
-# config.py
-import os
-import json
 from pathlib import Path
-from dotenv import load_dotenv
 
-load_dotenv()
+from .settings import settings
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 
 
 def _ensure_parent_dir(path: str):
-    """Создает родительский каталог для файла, если его еще нет."""
     p = Path(path)
     if p.parent and not p.parent.exists():
         p.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _ensure_dir(path: str):
-    """Создает каталог, если его еще нет."""
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def _load_json_env(name: str, default: str = "{}"):
-    """Безопасно читает JSON из переменной окружения."""
-    try:
-        return json.loads(os.getenv(name, default))
-    except Exception:
-        return {}
-
-UMP_BASE_URL = os.getenv("UMP_BASE_URL", "http://ump.piteravto.ru").rstrip("/")
-UMP_USER = os.getenv("UMP_USER", "")
-UMP_PASS = os.getenv("UMP_PASS", "")
-UMP_TOKEN_FILE = os.getenv("UMP_TOKEN_FILE", ".secrets/ump_token.txt")
-UMP_COOKIES_FILE = os.getenv("UMP_COOKIES", ".secrets/ump_cookies.txt")
-PARKS_FILE = os.getenv("PARKS_FILE", str(DATA_DIR / "parks.json"))
-VEHICLES_FILE = os.getenv("VEHICLES_FILE", str(DATA_DIR / "vehicles.sample.txt"))
-UMP_TZ_OFFSET = os.getenv("UMP_TIMEZONE_OFFSET", "180")
-REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "20"))
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+UMP_BASE_URL = settings.ump_base_url.rstrip("/")
+UMP_USER = settings.ump_user
+UMP_PASS = settings.ump_pass
+UMP_TOKEN_FILE = settings.ump_token_file
+UMP_COOKIES_FILE = settings.ump_cookies_file
+PARKS_FILE = settings.parks_file
+VEHICLES_FILE = settings.vehicles_file
+UMP_TZ_OFFSET = settings.ump_tz_offset
+REQUEST_TIMEOUT = settings.request_timeout
+LOG_LEVEL = settings.log_level.upper()
 
 # --- Пользовательские данные авторизации ---
-USER_TOKEN_DIR   = os.getenv("USER_TOKEN_DIR", ".secrets/user_tokens")
-USER_COOKIES_DIR = os.getenv("USER_COOKIES_DIR", ".secrets/user_cookies")
-UMP_BRANCH_MAP   = _load_json_env("UMP_BRANCH_MAP", "{}")  # {"Екатерининский": 1382, ...}
-UMP_USER_ID      = os.getenv("UMP_USER_ID")  # числовой ID пользователя UMP (для diag)
-USER_CREDS_DIR   = os.getenv("USER_CREDS_DIR", ".secrets/user_creds")
-USER_META_DIR    = os.getenv("USER_META_DIR", ".secrets/user_meta")
+USER_TOKEN_DIR = settings.user_token_dir
+USER_COOKIES_DIR = settings.user_cookies_dir
+UMP_BRANCH_MAP = settings.ump_branch_map
+UMP_USER_ID = settings.ump_user_id
+USER_CREDS_DIR = settings.user_creds_dir
+USER_META_DIR = settings.user_meta_dir
 
 # --- Caching / Stability ---
-CACHE_DIR         = os.getenv("CACHE_DIR", ".secrets/cache")
-CACHE_TTL_SEC     = int(os.getenv("CACHE_TTL", "120"))
-ANTI_FLAP_GRACE_M = float(os.getenv("ANTI_FLAP_GRACE_M", "3"))
+CACHE_DIR = settings.cache_dir
+CACHE_TTL_SEC = settings.cache_ttl_sec
+ANTI_FLAP_GRACE_M = settings.anti_flap_grace_m
 
 _ensure_parent_dir(UMP_TOKEN_FILE)
 _ensure_parent_dir(UMP_COOKIES_FILE)

@@ -24,6 +24,8 @@ venv/
 # Кэши/артефакты карт
 out/
 .tile_cache/
+var/
+run/
 
 # IDE/OS
 .DS_Store

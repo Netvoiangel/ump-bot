@@ -20,8 +20,8 @@ UMP_USER=ваш_логин
 UMP_PASS=ваш_пароль
 
 # Токены и файлы
-UMP_TOKEN_FILE=.secrets/ump_token.txt
-UMP_COOKIES=.secrets/ump_cookies.txt
+UMP_TOKEN_FILE=var/ump_token.txt
+UMP_COOKIES=var/ump_cookies.txt
 PARKS_FILE=src/ump_bot/data/parks.json
 VEHICLES_FILE=src/ump_bot/data/vehicles.sample.txt
 
@@ -35,7 +35,7 @@ MAPTILER_API_KEY=ваш_ключ_maptiler
 MAP_PROVIDER=https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key={apikey}
 MAP_ZOOM=17
 MAP_TPS=3
-MAP_CACHE_DIR=.tile_cache
+MAP_CACHE_DIR=var/tile_cache
 MAP_OUT_DIR=out
 MAP_SIZE=1200x800
 MAP_USER_AGENT=UMPBot/1.0 (+contact: you@example.com)

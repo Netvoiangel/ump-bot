@@ -23,18 +23,18 @@ git status
 git diff HEAD
 ```
 
-**Ожидаемый результат:** Последний коммит должен содержать изменения в `src/ump_bot/telegram_bot.py` и `src/ump_bot/render_map.py` с добавлением логирования для `color_map`.
+**Ожидаемый результат:** Последний коммит должен содержать изменения в `src/ump_bot/telegram_bot.py` и `src/ump_bot/infra/render_map.py` с добавлением логирования для `color_map`.
 
 ## Шаг 2: Проверка структуры файлов
 
 ```bash
 # Проверить наличие ключевых файлов
-ls -la src/ump_bot/telegram_bot.py src/ump_bot/render_map.py
+ls -la src/ump_bot/telegram_bot.py src/ump_bot/infra/render_map.py
 
 # Проверить, что функции логирования присутствуют
 grep -n "color_map создан" src/ump_bot/telegram_bot.py
 grep -n "build_color_map_from_sections" src/ump_bot/telegram_bot.py
-grep -n "\[DEBUG\] color_map передан" src/ump_bot/render_map.py
+grep -n "\[DEBUG\] color_map передан" src/ump_bot/infra/render_map.py
 ```
 
 **Ожидаемый результат:** Все три команды должны найти соответствующие строки в файлах.

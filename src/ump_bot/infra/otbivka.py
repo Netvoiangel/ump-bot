@@ -1,7 +1,8 @@
 # otbivka.py
 import os, json, re, math, requests
 from typing import Optional, List, Tuple, Dict
-from .config import (
+from ..domain.park import Park
+from ..config import (
     UMP_BASE_URL,
     UMP_TOKEN_FILE,
     PARKS_FILE,
@@ -25,7 +26,7 @@ def _load_token(token_override: Optional[str] = None, token_path: Optional[str] 
     Если указан token_path — читается файл по этому пути (без авто-логина из env).
     """
     import os
-    from .config import UMP_USER, UMP_PASS
+    from ..config import UMP_USER, UMP_PASS
 
     if token_override:
         tok = token_override.strip()
@@ -235,7 +236,7 @@ def _save_cached_position(vehicle_id: int, lat: float, lon: float, in_park: bool
         pass
 
 # ---------- Geometry / Geofencing ----------
-def load_parks(path=PARKS_FILE) -> List[Dict]:
+def load_parks(path=PARKS_FILE) -> List[Park]:
     with open(path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
     parks = cfg.get("parks") or []

@@ -6,7 +6,7 @@ from typing import Optional
 import requests
 from http.cookiejar import MozillaCookieJar
 
-from .config import (
+from ..config import (
     UMP_BASE_URL,
     UMP_USER,
     UMP_PASS,
