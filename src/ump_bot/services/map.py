@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -10,6 +11,7 @@ from telegram import Update
 from ..config import CACHE_DIR
 from ..infra.otbivka import get_position_and_check
 from ..infra.render_map import render_parks_with_vehicles
+from ..services import auth
 from ..utils.logging import log_print
 from .vehicles import build_color_map_from_sections, deduplicate_numbers
 
@@ -64,7 +66,7 @@ async def render_map_with_numbers(
         sample_results = []
         for dep in depot_numbers[:5]:
             try:
-                result = get_position_and_check(dep, token_path=token_path)
+                result = await asyncio.to_thread(get_position_and_check, dep, token_path=token_path)
                 sample_results.append(result)
                 log_print(
                     logger,
@@ -72,13 +74,24 @@ async def render_map_with_numbers(
                 )
             except requests.HTTPError as e:
                 if e.response is not None and e.response.status_code == 401:
+                    # пробуем обновить токен по сохранённым учётным данным
+                    new_path = auth.refresh_session(update.effective_user.id)
+                    if new_path:
+                        token_path = new_path
+                        try:
+                            result = await asyncio.to_thread(get_position_and_check, dep, token_path=token_path)
+                            sample_results.append(result)
+                            continue
+                        except Exception:
+                            pass
                     await update.message.reply_text("❌ Сессия UMP истекла. Введите /login для повторной авторизации.")
                     return
                 log_print(logger, f"HTTP error проверки ТС {dep}: {e}", "ERROR")
             except Exception as e:
                 log_print(logger, f"Ошибка проверки ТС {dep}: {e}", "ERROR")
 
-        files = render_parks_with_vehicles(
+        files = await asyncio.to_thread(
+            render_parks_with_vehicles,
             depot_numbers=depot_numbers,
             out_dir=out_dir,
             size="1200x800",

@@ -143,6 +143,14 @@ def _try_autologin(user_id: int) -> Optional[str]:
         return None
 
 
+def refresh_session(user_id: int) -> Optional[str]:
+    """
+    Пытается обновить UMP-сессию пользователя по сохранённым учётным данным.
+    Возвращает путь к файлу токена при успехе.
+    """
+    return _try_autologin(user_id)
+
+
 async def _prompt_login(update: Update) -> None:
     """Запускает диалог авторизации: сначала логин, потом пароль."""
     user_id = update.effective_user.id

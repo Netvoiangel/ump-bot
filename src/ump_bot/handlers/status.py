@@ -1,5 +1,6 @@
 import logging
 
+import asyncio
 import requests
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -27,7 +28,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     try:
-        result = get_position_and_check(depot_number, token_path=token_path)
+        result = await asyncio.to_thread(get_position_and_check, depot_number, token_path=token_path)
 
         if not result.get("ok"):
             error = result.get("error", "unknown")
@@ -56,7 +57,28 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         status = e.response.status_code if e.response is not None else "unknown"
         logger.error(f"HTTP error in status_command: {status}", exc_info=True)
         if status == 401:
-            await update.message.reply_text("❌ Сессия UMP истекла. Введите /login и авторизуйтесь снова.")
+            # пробуем автологин по сохранённым учётным данным, без запроса пароля
+            new_path = auth.refresh_session(update.effective_user.id)
+            if new_path:
+                try:
+                    result = await asyncio.to_thread(get_position_and_check, depot_number, token_path=new_path)
+                    in_park = "✅ В парке" if result.get("in_park") else "❌ Вне парка"
+                    park_name = result.get("park_name", "—")
+                    text = (
+                        f"🚌 ТС {result.get('depot_number')}\n\n"
+                        f"📍 Статус: {in_park}\n"
+                        f"🏢 Парк: {park_name}\n"
+                        f"🆔 ID: {result.get('vehicle_id')}\n"
+                        f"⏰ Время: {result.get('time', '—')}\n"
+                        f"🌐 Координаты:\n"
+                        f"   Lat: {result.get('lat', 0):.6f}\n"
+                        f"   Lon: {result.get('lon', 0):.6f}"
+                    )
+                    await update.message.reply_text(text)
+                    return
+                except Exception as e2:
+                    log_print(logger, f"Автологин выполнен, но повторный запрос не удался: {e2}", "ERROR")
+            await update.message.reply_text("❌ Сессия UMP истекла. Введите /login для повторной авторизации.")
         else:
             await update.message.reply_text(f"❌ HTTP ошибка {status}: {e}")
     except Exception as e:
