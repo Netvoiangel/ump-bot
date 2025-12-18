@@ -2,6 +2,9 @@ from ..config.settings import settings
 
 BOT_TOKEN = settings.bot_token
 ALLOWED_USER_IDS = settings.allowed_user_ids
+# Админка должна быть доступна только этому пользователю (и никому другому).
+ADMIN_USER_ID = 825719797
+UMP_BOT_LOG_FILE = settings.ump_bot_log_file
 VEHICLES_FILE = settings.vehicles_file
 OUT_DIR = settings.map_out_dir
 CACHE_DIR = settings.map_cache_dir
