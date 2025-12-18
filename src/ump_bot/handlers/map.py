@@ -123,7 +123,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 user_id, username=username, password=password, token=tok
             )
             auth._reset_auth_flow(user_id)
-            await update.message.reply_text("✅ UMP-аккаунт подключен. Можете использовать /map или /status.")
+            await update.message.reply_text("✅ UMP-аккаунт подключен. Автополучение токена включено. Используйте /map или /status.")
         except Exception as e:
             log_print(logger, f"Ошибка авторизации: {e}", "ERROR")
             await update.message.reply_text(f"❌ Ошибка авторизации: {e}")

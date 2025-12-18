@@ -168,8 +168,8 @@ async def ensure_user_authenticated(update: Update) -> Optional[str]:
             Path(session.token_path).parent.mkdir(parents=True, exist_ok=True)
             Path(session.token_path).write_text(session.token, encoding="utf-8")
             return session.token_path
-        except Exception:
-            pass
+        except Exception as e:
+            log_print(logger, f"Не удалось восстановить токен из памяти: {e}", "ERROR")
     # пробуем автологин по сохранённым учетным данным
     autologin_path = _try_autologin(user_id)
     if autologin_path:
