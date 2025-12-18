@@ -8,6 +8,7 @@ from ..services import auth
 from ..services.settings import ADMIN_USER_ID, ALLOWED_USER_IDS
 from ..services.state import user_park_cache
 from ..utils.logging import log_print
+from .access import reply_private
 
 logger = logging.getLogger("ump_bot")
 
@@ -15,7 +16,7 @@ logger = logging.getLogger("ump_bot")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /start"""
     if not auth.check_access(update.effective_user.id, ALLOWED_USER_IDS):
-        await update.message.reply_text("❌ Доступ запрещен.")
+        await reply_private(update)
         return
 
     user_id = update.effective_user.id

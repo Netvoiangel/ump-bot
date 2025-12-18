@@ -17,6 +17,7 @@ from ..services.diagnostic import (
 from ..services.settings import ALLOWED_USER_IDS
 from ..config import UMP_USER_ID
 from ..utils.logging import log_print
+from .access import reply_private
 
 logger = logging.getLogger("ump_bot")
 
@@ -24,6 +25,7 @@ logger = logging.getLogger("ump_bot")
 async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /diag [филиал]"""
     if not auth.check_access(update.effective_user.id, ALLOWED_USER_IDS):
+        await reply_private(update)
         return
 
     args = context.args or []
@@ -72,6 +74,7 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /test - диагностика"""
     if not auth.check_access(update.effective_user.id, ALLOWED_USER_IDS):
+        await reply_private(update)
         return
 
     log_print(logger, "=== TEST COMMAND ВЫЗВАН ===")

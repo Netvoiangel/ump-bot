@@ -23,6 +23,7 @@ from ..services.settings import (
 from ..services.state import user_park_cache
 from ..services.vehicles import deduplicate_numbers, is_valid_depot_number, parse_sections_from_text
 from ..utils.logging import log_print
+from .access import maybe_accept_request_text, reply_private
 
 logger = logging.getLogger("ump_bot")
 VEHICLES_FILE = ENV_VEHICLES_FILE or CONFIG_VEHICLES_FILE
@@ -34,7 +35,8 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     log_print(logger, "map_command вызван")
 
     if not auth.check_access(update.effective_user.id, ALLOWED_USER_IDS):
-        log_print(logger, f"Доступ запрещен для user={update.effective_user.id}", "WARNING")
+        # user-friendly: покажем приватное сообщение с кнопкой заявки
+        await reply_private(update)
         return
 
     user_id = update.effective_user.id
@@ -84,7 +86,12 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик текстовых сообщений: логин-диалог и форматы vehicles.txt"""
+    # Разрешаем незалогиненным пользователям отправить текст заявки.
+    if await maybe_accept_request_text(update, context):
+        return
+
     if not auth.check_access(update.effective_user.id, ALLOWED_USER_IDS):
+        await reply_private(update)
         return
 
     user_id = update.effective_user.id

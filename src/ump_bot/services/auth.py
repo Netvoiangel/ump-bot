@@ -16,6 +16,7 @@ from ..config import (
 )
 from ..infra.login_token import login_with_credentials
 from ..utils.logging import log_print
+from ..services.access_control import is_allowed
 
 logger = logging.getLogger("ump_bot")
 
@@ -37,9 +38,10 @@ auth_flow_data: Dict[int, Dict[str, str]] = {}
 
 
 def check_access(user_id: int, allowed_user_ids: Optional[list[str]]) -> bool:
-    if not allowed_user_ids:
-        return True
-    return str(user_id) in allowed_user_ids
+    # Совместимость со старым интерфейсом, но теперь бот работает в приватном режиме:
+    # доступ определяет persistent allow/deny list (var/user_meta/access_control.json).
+    # TELEGRAM_ALLOWED_USERS используется как «начальный» allowlist/подхват, но не делает бота публичным.
+    return is_allowed(user_id)
 
 
 def _reset_auth_flow(user_id: int) -> None:

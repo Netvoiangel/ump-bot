@@ -21,6 +21,7 @@ from .handlers import status as status_handlers
 from .handlers import login as login_handlers
 from .handlers import diagnostics as diag_handlers
 from .handlers import admin as admin_handlers
+from .handlers import access as access_handlers
 from .utils.logging import configure_logging, log_print
 
 logger = configure_logging(LOG_LEVEL)
@@ -51,6 +52,7 @@ park_callback = start_handlers.park_callback
 login_command = login_handlers.login_command
 admin_command = admin_handlers.admin_command
 admin_callback = admin_handlers.admin_callback
+access_callback = access_handlers.access_callback
 
 # для monkeypatch в тестах
 login_with_credentials = login_with_credentials
@@ -80,6 +82,7 @@ def main() -> None:
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(park_callback, pattern="^park_"))
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
+    application.add_handler(CallbackQueryHandler(access_callback, pattern="^access_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
     log_print(logger, "Обработчики зарегистрированы, запускаю polling")
