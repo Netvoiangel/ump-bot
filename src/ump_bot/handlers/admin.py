@@ -25,6 +25,7 @@ from ..config import (
 from ..services import auth
 from ..services.settings import ADMIN_USER_ID, ALLOWED_USER_IDS, UMP_BOT_LOG_FILE
 from ..services.state import user_park_cache
+from ..services import access_control
 
 
 def _is_admin(user_id: int) -> bool:
@@ -162,6 +163,7 @@ def _try_systemctl_is_active(unit: str) -> Optional[str]:
 
 
 def _menu() -> InlineKeyboardMarkup:
+    s = access_control.stats()
     kb = [
         [
             InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
@@ -170,6 +172,9 @@ def _menu() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("🧾 Логи (tail)", callback_data="admin_logs"),
             InlineKeyboardButton("📦 Окружение", callback_data="admin_env"),
+        ],
+        [
+            InlineKeyboardButton(f"👥 Доступ (заявки: {s['pending']})", callback_data="admin_access"),
         ],
         [
             InlineKeyboardButton("🌐 UMP healthcheck", callback_data="admin_ump"),
@@ -206,6 +211,19 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     action = (q.data or "").strip()
     if action == "admin_menu":
         await q.edit_message_text("🛠 Админ‑панель\n\nВыберите действие:", reply_markup=_menu())
+        return
+
+    if action == "admin_access":
+        s = access_control.stats()
+        lines: list[str] = []
+        lines.append("👥 Доступ к боту\n")
+        lines.append(f"✅ Разрешённых: {s['allowed']}")
+        lines.append(f"⛔ Запрещённых: {s['denied']}")
+        lines.append(f"📨 Заявок в ожидании: {s['pending']}")
+        lines.append("")
+        lines.append("Заявки приходят вам отдельным сообщением с кнопками ✅/⛔.")
+        lines.append("Если пользователь нажал кнопку и отправил текст, вы получите уведомление.")
+        await q.edit_message_text("\n".join(lines), reply_markup=_menu())
         return
 
     if action == "admin_stats":

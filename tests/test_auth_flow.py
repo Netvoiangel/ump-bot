@@ -30,6 +30,8 @@ def reset_state(monkeypatch, tmp_path):
     auth.auth_flow_stage.clear()
     auth.auth_flow_data.clear()
     auth.user_sessions.clear()
+    # Доступ в тестах не проверяем
+    monkeypatch.setattr(auth, "check_access", lambda *_: True)
 
     token_dir = tmp_path / "tokens"
     cookies_dir = tmp_path / "cookies"

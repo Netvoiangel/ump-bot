@@ -9,6 +9,7 @@ from ..infra.otbivka import get_position_and_check
 from ..services import auth
 from ..services.settings import ALLOWED_USER_IDS
 from ..utils.logging import log_print
+from .access import reply_private
 
 logger = logging.getLogger("ump_bot")
 
@@ -16,6 +17,7 @@ logger = logging.getLogger("ump_bot")
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /status [номер]"""
     if not auth.check_access(update.effective_user.id, ALLOWED_USER_IDS):
+        await reply_private(update)
         return
 
     if not context.args:
