@@ -64,7 +64,7 @@ def main() -> None:
         log_print(logger, "TELEGRAM_BOT_TOKEN не установлен в .env", "ERROR")
         return
 
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).concurrent_updates(8).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
