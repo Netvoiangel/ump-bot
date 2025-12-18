@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # Bot / map
     bot_token: str = Field("", alias="TELEGRAM_BOT_TOKEN")
     allowed_user_ids_raw: str = Field("", alias="TELEGRAM_ALLOWED_USERS")
+    ump_bot_log_file: str = Field("var/ump_bot.log", alias="UMP_BOT_LOG_FILE")
     vehicles_file: str = Field("src/ump_bot/data/vehicles.sample.txt", alias="VEHICLES_FILE")
     parks_file: str = Field("src/ump_bot/data/parks.json", alias="PARKS_FILE")
     map_out_dir: str = Field("out", alias="MAP_OUT_DIR")

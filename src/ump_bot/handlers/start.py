@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 
 from ..infra.otbivka import load_parks
 from ..services import auth
-from ..services.settings import ALLOWED_USER_IDS
+from ..services.settings import ADMIN_USER_ID, ALLOWED_USER_IDS
 from ..services.state import user_park_cache
 from ..utils.logging import log_print
 
@@ -33,6 +33,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/help - Справка\n\n"
     )
 
+    if update.effective_user and int(update.effective_user.id) == int(ADMIN_USER_ID):
+        text += "/admin - Админ‑панель\n\n"
+
     if user_id in user_park_cache:
         text += f"📍 Выбранный парк: {user_park_cache[user_id]}\n"
 
@@ -55,6 +58,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/status [номер] - Проверить статус ТС\n"
         "/diag [филиал] - Ошибки оборудования\n"
         "/login - Авторизоваться в UMP\n"
+    )
+    if update.effective_user and int(update.effective_user.id) == int(ADMIN_USER_ID):
+        text += "/admin - Админ‑панель\n"
+    text += (
         "/help - Эта справка\n\n"
         "Примеры:\n"
         "/status 6569\n"
