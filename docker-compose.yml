@@ -4,7 +4,7 @@ services:
   ump-bot:
     build: .
     container_name: ump-telegram-bot
-    restart: unless-stopped
+    restart: always
     volumes:
       # Добавляем :Z для корректной работы SELinux при Podman bind-mount
       - ./var:/app/var:Z

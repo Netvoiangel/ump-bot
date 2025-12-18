@@ -15,6 +15,8 @@ from ..services import auth
 from ..utils.logging import log_print
 from .vehicles import build_color_map_from_sections, deduplicate_numbers
 
+_MAP_RENDER_SEM = asyncio.Semaphore(int(os.getenv("MAP_RENDER_CONCURRENCY", "2")))
+
 
 async def render_map_with_numbers(
     logger,
@@ -90,24 +92,26 @@ async def render_map_with_numbers(
             except Exception as e:
                 log_print(logger, f"Ошибка проверки ТС {dep}: {e}", "ERROR")
 
-        files = await asyncio.to_thread(
-            render_parks_with_vehicles,
-            depot_numbers=depot_numbers,
-            out_dir=out_dir,
-            size="1200x800",
-            use_real_map=True,
-            zoom=zoom,
-            tile_provider=tile_provider,
-            tile_cache=tile_cache,
-            tile_user_agent=tile_user_agent,
-            tile_referer=tile_referer,
-            tile_apikey=tile_apikey,
-            tile_rate_tps=tile_rate_tps,
-            park_filter=selected_park,
-            color_map=color_map,
-            debug=True,
-            auth_token_path=token_path,
-        )
+        # Ограничиваем параллельный рендер карт, чтобы не "забить" CPU/пулы потоков и не зависать на апдейтах.
+        async with _MAP_RENDER_SEM:
+            files = await asyncio.to_thread(
+                render_parks_with_vehicles,
+                depot_numbers=depot_numbers,
+                out_dir=out_dir,
+                size="1200x800",
+                use_real_map=True,
+                zoom=zoom,
+                tile_provider=tile_provider,
+                tile_cache=tile_cache,
+                tile_user_agent=tile_user_agent,
+                tile_referer=tile_referer,
+                tile_apikey=tile_apikey,
+                tile_rate_tps=tile_rate_tps,
+                park_filter=selected_park,
+                color_map=color_map,
+                debug=True,
+                auth_token_path=token_path,
+            )
 
         if not files:
             debug_info = f"Обработано ТС: {len(depot_numbers)}\n"

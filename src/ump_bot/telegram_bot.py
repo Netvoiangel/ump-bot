@@ -71,6 +71,13 @@ def main() -> None:
 
     application = Application.builder().token(BOT_TOKEN).concurrent_updates(8).build()
 
+    def _on_error(update: object, context) -> None:
+        # Никогда не даём исключениям "молчаливо" уронить обработку.
+        try:
+            logger.exception("Unhandled error while processing update: %s", context.error)
+        except Exception:
+            pass
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("test", test_command))
@@ -84,6 +91,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
     application.add_handler(CallbackQueryHandler(access_callback, pattern="^access_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    application.add_error_handler(_on_error)
 
     log_print(logger, "Обработчики зарегистрированы, запускаю polling")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
