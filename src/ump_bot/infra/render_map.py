@@ -4,7 +4,6 @@ from typing import List, Tuple, Dict, Optional
 import requests
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
-from .otbivka import load_parks, batch_get_positions
 
 
 def _normalize_token(tok: str) -> str:
@@ -110,18 +109,55 @@ def _tile_xy_ranges(bbox: Tuple[float, float, float, float], zoom: int, pad_px: 
     maxy = int((max(y1, y2) + pad_px) // 256)
     return minx, miny, maxx, maxy
 
+def _tile_grid_metrics(bbox: Tuple[float, float, float, float], zoom: int, pad_px: int = 64) -> Tuple[int, int, int, int]:
+    """
+    Возвращает (tiles_x, tiles_y, canvas_w_px, canvas_h_px) для заданного bbox/zoom.
+    Чистая функция — удобно тестировать и использовать для защиты от OOM.
+    """
+    minx, miny, maxx, maxy = _tile_xy_ranges(bbox, zoom, pad_px=pad_px)
+    tiles_x = max(0, (maxx - minx + 1))
+    tiles_y = max(0, (maxy - miny + 1))
+    return tiles_x, tiles_y, tiles_x * 256, tiles_y * 256
+
+def _tile_canvas_is_too_big(
+    bbox: Tuple[float, float, float, float],
+    zoom: int,
+    *,
+    pad_px: int = 64,
+    max_tiles: int = 225,
+    max_side_px: int = 4096,
+    max_pixels: int = 4096 * 4096,
+) -> bool:
+    """
+    Защита от огромного числа тайлов/гигантского холста (OOM).
+    """
+    tiles_x, tiles_y, w, h = _tile_grid_metrics(bbox, zoom, pad_px=pad_px)
+    tiles_total = tiles_x * tiles_y
+    if tiles_total <= 0:
+        return True
+    if tiles_total > max_tiles:
+        return True
+    if w > max_side_px or h > max_side_px:
+        return True
+    if (w * h) > max_pixels:
+        return True
+    return False
+
 def _fetch_tile(session: requests.Session, provider: str, z: int, x: int, y: int, cache_dir: str) -> Image.Image:
     _ensure_dir(cache_dir)
     local = os.path.join(cache_dir, f"{provider.replace('://','_').replace('/','_')}_{z}_{x}_{y}.png")
     if os.path.exists(local):
         try:
-            return Image.open(local)
+            # Важно: Image.open держит файловый дескриптор до закрытия объекта.
+            # При частом рендере это может накопить FD/память, поэтому делаем copy().
+            with Image.open(local) as im:
+                return im.convert("RGBA").copy()
         except Exception:
             pass
     url = provider.replace("{z}", str(z)).replace("{x}", str(x)).replace("{y}", str(y))
     resp = session.get(url, timeout=15)
     resp.raise_for_status()
-    img = Image.open(io.BytesIO(resp.content))
+    img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
     try:
         img.save(local)
     except Exception:
@@ -204,6 +240,10 @@ def render_parks_with_vehicles(
     auth_token: Optional[str] = None,
     auth_token_path: Optional[str] = None,
 ) -> List[str]:
+    # Ленивая зависимость: не тянем весь конфиг/pydantic при импорте модуля,
+    # чтобы вспомогательные функции (tile guard) были тестируемы/используемы отдельно.
+    from .otbivka import load_parks, batch_get_positions
+
     # Отладка color_map
     if debug:
         if color_map:
@@ -276,6 +316,47 @@ def render_parks_with_vehicles(
 
         # фон: либо реальные тайлы, либо однотонный
         if use_real_map:
+            # Safety: защита от слишком большого холста тайлов (OOM/FD storm).
+            try:
+                max_tiles = int(os.getenv("MAP_MAX_TILES", "225"))
+            except Exception:
+                max_tiles = 225
+            try:
+                max_side_px = int(os.getenv("MAP_MAX_TILE_CANVAS_SIDE_PX", "4096"))
+            except Exception:
+                max_side_px = 4096
+            try:
+                max_pixels = int(os.getenv("MAP_MAX_TILE_CANVAS_PIXELS", str(4096 * 4096)))
+            except Exception:
+                max_pixels = 4096 * 4096
+
+            if _tile_canvas_is_too_big(
+                bbox,
+                zoom,
+                max_tiles=max_tiles,
+                max_side_px=max_side_px,
+                max_pixels=max_pixels,
+            ):
+                if debug:
+                    tiles_x, tiles_y, cw, ch = _tile_grid_metrics(bbox, zoom)
+                    print(
+                        f"tile_canvas_guard: fallback_to_simple_bg park={park_name}, "
+                        f"zoom={zoom}, tiles={tiles_x}x{tiles_y}, canvas={cw}x{ch}"
+                    )
+                img = Image.new("RGB", (width, height), background)
+                draw = ImageDraw.Draw(img)
+                poly_xy = [_project(x, y, bbox, (width, height), pad) for (x, y) in polygon]
+                if len(poly_xy) >= 3:
+                    draw.polygon(poly_xy, fill=fill_color, outline=outline_color)
+                # Дальше используем обычный путь рисования точек (use_real_map=False для этого парка)
+                use_real_map_for_park = False
+            else:
+                use_real_map_for_park = True
+
+        else:
+            use_real_map_for_park = False
+
+        if use_real_map_for_park:
             provider_url = tile_provider
             # подхватываем ключ/UA/Referer из окружения, если не переданы явно
             env_key = os.getenv("MAPTILER_API_KEY", "")
@@ -329,7 +410,7 @@ def render_parks_with_vehicles(
             dep = str(v.get("depot_number"))
             if lon is None or lat is None:
                 continue
-            if use_real_map:
+            if use_real_map_for_park:
                 px, py = _project_on_tileimg(lon, lat, zoom, tile_range)
                 cx = int(px * scale_x)
                 cy = int(py * scale_y)
