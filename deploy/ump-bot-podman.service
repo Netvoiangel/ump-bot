@@ -1,0 +1,23 @@
+[Unit]
+Description=UMP Bot (Podman container, rootless)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/ump-bot
+
+# ВАЖНО: этот unit не использует внутренний автоперезапуск в Python.
+# Перезапуск контейнера обеспечивает Podman (restart: always) + systemd автозапуск после ребута.
+
+ExecStart=%h/ump-bot/scripts/compose.sh up -d --build
+ExecStop=%h/ump-bot/scripts/compose.sh down --remove-orphans
+
+TimeoutStartSec=0
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target
+
+
