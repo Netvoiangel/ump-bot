@@ -196,6 +196,25 @@ docker compose up -d --build
 docker compose logs -f --tail=200
 ```
 
+#### 8.2.0 Рекомендуемый способ управления (и чтобы “всегда работало”)
+Чтобы не ловить ошибки вида **“no compose.yaml … file found”** (когда команда запущена не из каталога репозитория) и чтобы одинаково работало на Docker/Podman, используйте скрипты:
+
+```bash
+chmod +x ./scripts/compose.sh ./update_bot.sh
+
+# запуск
+./scripts/compose.sh up -d --build
+
+# статус
+./scripts/compose.sh ps
+
+# логи
+./scripts/compose.sh logs -f --tail=200 ump-telegram-bot
+
+# обновление (pull + rebuild + restart)
+./update_bot.sh
+```
+
 #### 8.2.1 Troubleshooting (Podman / podman-compose)
 На некоторых серверах команда `docker` может быть **эмуляцией Podman** (в выводе будет что-то вроде “Emulate Docker CLI using podman”, а `docker compose` будет вызывать `podman-compose`).
 
@@ -208,6 +227,24 @@ docker compose logs -f --tail=200
   - Логи контейнера: `podman logs ump-telegram-bot --tail=200`
   - Проверка OOM в состоянии контейнера: `podman inspect ump-telegram-bot --format '{{.State.OOMKilled}} {{.State.ExitCode}} {{.State.Error}}'`
   - Проверка OOM в ядре: `journalctl -k --since "1 hour ago" | grep -i oom` (или `dmesg | grep -i oom`)
+
+#### 8.2.2 Автозапуск Podman после ребута/логаута (rootless)
+Если вы запускаете rootless Podman под пользователем `secureadmin`, контейнер может не стартовать сам после ребута, пока вы не зайдёте по SSH.
+Решение — включить linger и поставить user-unit:
+
+```bash
+# один раз, от root:
+sudo loginctl enable-linger secureadmin
+
+# от secureadmin:
+mkdir -p ~/.config/systemd/user
+cp -f ~/ump-bot/deploy/ump-bot-podman.service ~/.config/systemd/user/ump-bot-podman.service
+systemctl --user daemon-reload
+systemctl --user enable --now ump-bot-podman.service
+systemctl --user status ump-bot-podman.service
+```
+
+Примечание: в логах у вас уже светился токен бота Telegram. Если он реальный/боевой — лучше **перегенерировать токен** в BotFather и обновить `.env`.
 
 #### 8.3 systemd
 В репозитории есть пример `ump-bot.service`.
