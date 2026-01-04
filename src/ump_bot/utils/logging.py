@@ -13,6 +13,10 @@ def configure_logging(level: str = "INFO") -> logging.Logger:
         ],
         force=True,
     )
+    # Важно: http-клиенты (httpx/httpcore) могут логировать URL, включая токен Telegram в пути.
+    # Чтобы не светить секреты в логах, держим их на WARNING+.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     logger = logging.getLogger("ump_bot")
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
     return logger

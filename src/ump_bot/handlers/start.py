@@ -49,6 +49,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /help"""
     if not auth.check_access(update.effective_user.id, ALLOWED_USER_IDS):
+        await reply_private(update)
         return
 
     text = (
@@ -74,6 +75,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def parks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /parks - выбор парка"""
     if not auth.check_access(update.effective_user.id, ALLOWED_USER_IDS):
+        await reply_private(update)
         return
 
     parks = load_parks()
