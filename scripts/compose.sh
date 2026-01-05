@@ -9,6 +9,18 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+if [[ $# -eq 0 ]]; then
+  echo "Usage: $0 <compose-subcommand> [args...]" >&2
+  echo "Examples:" >&2
+  echo "  $0 ps" >&2
+  echo "  $0 logs -f --tail=200 ump-telegram-bot" >&2
+  echo "  $0 up -d --build" >&2
+  echo "" >&2
+  echo "Runtime selection:" >&2
+  echo "  RUNTIME=docker|podman $0 ..." >&2
+  exit 2
+fi
+
 die() {
   echo "ERROR: $*" >&2
   exit 2
