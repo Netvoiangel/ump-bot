@@ -15,9 +15,9 @@ git checkout main
 git pull --ff-only origin main
 
 echo ">>> Пересобираю и перезапускаю контейнер (Docker/Podman через scripts/compose.sh)..."
-./scripts/compose.sh down --remove-orphans || true
-./scripts/compose.sh up -d --build
+bash ./scripts/compose.sh down --remove-orphans || true
+bash ./scripts/compose.sh up -d --build
 
 echo "✅ Готово. Текущий статус:"
-./scripts/compose.sh ps
+bash ./scripts/compose.sh ps
 
