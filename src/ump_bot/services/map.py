@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import requests
-from telegram import Update
+from telegram import InputFile, Update
+from telegram.error import NetworkError, TimedOut
 
 from ..config import CACHE_DIR
 from ..infra.otbivka import get_position_and_check
@@ -137,10 +138,33 @@ async def render_map_with_numbers(
                         f"⚠️ Изображение слишком большое ({file_size // 1024 // 1024}MB)"
                     )
                     continue
-                with open(file_path, "rb") as photo:
-                    park_name = Path(file_path).stem.replace("park_", "")
-                    caption = f"📍 Парк: {park_name}\n🚌 ТС: {len(depot_numbers)}"
-                    await update.message.reply_photo(photo=photo, caption=caption)
+                park_name = Path(file_path).stem.replace("park_", "")
+                caption = f"📍 Парк: {park_name}\n🚌 ТС: {len(depot_numbers)}"
+
+                # Читаем в память (до max_image_size), чтобы можно было повторить отправку при таймауте.
+                with open(file_path, "rb") as f:
+                    data = f.read()
+
+                # 1 ретрай на сетевой сбой/таймаут Telegram (часто бывает на медленном uplink).
+                last_exc: Exception | None = None
+                for attempt in (1, 2):
+                    try:
+                        inp = InputFile(data, filename=Path(file_path).name)
+                        await update.message.reply_photo(photo=inp, caption=caption)
+                        last_exc = None
+                        break
+                    except (TimedOut, NetworkError) as e:
+                        last_exc = e
+                        log_print(
+                            logger,
+                            f"Telegram send photo failed (attempt {attempt}/2) for {file_path}: {e}",
+                            "ERROR",
+                        )
+                        if attempt == 1:
+                            await asyncio.sleep(2)
+
+                if last_exc is not None:
+                    raise last_exc
             except Exception as e:
                 log_print(logger, f"Ошибка отправки изображения {file_path}: {e}", "ERROR")
                 await update.message.reply_text(f"❌ Ошибка отправки изображения: {e}")
