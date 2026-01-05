@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -8,6 +10,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 from .config import LOG_LEVEL
 from .infra.login_token import login_with_credentials
@@ -69,10 +72,29 @@ def main() -> None:
         log_print(logger, "TELEGRAM_BOT_TOKEN не установлен в .env", "ERROR")
         return
 
-    application = Application.builder().token(BOT_TOKEN).concurrent_updates(8).build()
+    # Telegram API: увеличиваем таймауты (особенно write_timeout для upload фото),
+    # иначе на медленном канале отправка изображений может падать с "Timed out".
+    connect_timeout = float(os.getenv("TELEGRAM_CONNECT_TIMEOUT", "10"))
+    read_timeout = float(os.getenv("TELEGRAM_READ_TIMEOUT", "30"))
+    write_timeout = float(os.getenv("TELEGRAM_WRITE_TIMEOUT", "120"))
+    pool_timeout = float(os.getenv("TELEGRAM_POOL_TIMEOUT", "30"))
+    request = HTTPXRequest(
+        connect_timeout=connect_timeout,
+        read_timeout=read_timeout,
+        write_timeout=write_timeout,
+        pool_timeout=pool_timeout,
+    )
 
-    def _on_error(update: object, context) -> None:
-        # Никогда не даём исключениям "молчаливо" уронить обработку.
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .request(request)
+        .concurrent_updates(8)
+        .build()
+    )
+
+    async def _on_error(update: object, context) -> None:
+        # python-telegram-bot v21 ожидает coroutine error handler (его будут await-ить).
         try:
             logger.exception("Unhandled error while processing update: %s", context.error)
         except Exception:
