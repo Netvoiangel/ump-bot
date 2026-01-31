@@ -30,6 +30,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/parks - Список парков\n"
         "/status [номер] - Статус ТС\n"
         "/login - Подключить UMP-аккаунт\n"
+        "/act - Сформировать акт ГС\n"
         "/diag [филиал] - Ошибки оборудования по филиалу\n"
         "/help - Справка\n\n"
     )
@@ -60,6 +61,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/status [номер] - Проверить статус ТС\n"
         "/diag [филиал] - Ошибки оборудования\n"
         "/login - Авторизоваться в UMP\n"
+        "/act - Сформировать акт ГС\n"
     )
     if update.effective_user and int(update.effective_user.id) == int(ADMIN_USER_ID):
         text += "/admin - Админ‑панель\n"
