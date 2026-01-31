@@ -25,6 +25,7 @@ from .handlers import login as login_handlers
 from .handlers import diagnostics as diag_handlers
 from .handlers import admin as admin_handlers
 from .handlers import access as access_handlers
+from .handlers import act as act_handlers
 from .utils.logging import configure_logging, log_print
 
 logger = configure_logging(LOG_LEVEL)
@@ -109,6 +110,7 @@ def main() -> None:
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("map", map_command))
     application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(act_handlers.act_handler)
     application.add_handler(CallbackQueryHandler(park_callback, pattern="^park_"))
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
     application.add_handler(CallbackQueryHandler(access_callback, pattern="^access_"))

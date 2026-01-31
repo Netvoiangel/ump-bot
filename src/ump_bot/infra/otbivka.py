@@ -248,7 +248,9 @@ def load_parks(path=PARKS_FILE) -> List[Park]:
         out.append({
             "name": p.get("name","park"),
             "polygon": [(float(x), float(y)) for x, y in poly],  # (lon, lat)
-            "tolerance_m": float(p.get("tolerance_m", 0.0))
+            "tolerance_m": float(p.get("tolerance_m", 0.0)),
+            "address_default": p.get("address_default"),
+            "addresses": p.get("addresses")
         })
     return out
 

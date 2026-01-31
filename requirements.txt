@@ -11,3 +11,5 @@ pytest==8.3.4
 pytest-cov==6.0.0
 pydantic==2.10.3
 pydantic-settings==2.10.1
+python-docx==1.1.2
+docxtpl==0.16.8

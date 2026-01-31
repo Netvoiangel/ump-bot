@@ -8,3 +8,6 @@ class Park(TypedDict, total=False):
     lon: float
     radius: float
     polygon: List[List[float]]  # [[lon, lat], ...]
+    tolerance_m: float
+    address_default: Optional[str]
+    addresses: Optional[List[str]]
